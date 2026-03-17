@@ -142,7 +142,7 @@ class ApiService {
   ) async {
     final responseBody = await response.transform(utf8.decoder).join();
     final contentType = response.headers.contentType;
-    final mimeType = contentType?.mimeType?.toLowerCase();
+    final mimeType = contentType?.mimeType.toLowerCase();
     final isJsonResponse = mimeType == 'application/json' ||
         responseBody.trimLeft().startsWith('{') ||
         responseBody.trimLeft().startsWith('[');

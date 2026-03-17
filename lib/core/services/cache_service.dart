@@ -1,8 +1,9 @@
+import '../../models/box_id_entry.dart';
+
 /// Servicio de caché en memoria para respuestas rápidas.
-/// 
+///
 /// Estrategia: Cache-First para datos que cambian poco,
 /// Network-First para datos críticos.
-import '../../models/box_id_entry.dart';
 
 class CacheService {
   static final Map<String, _CacheEntry> _cache = {};
