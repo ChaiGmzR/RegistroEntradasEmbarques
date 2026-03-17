@@ -14,7 +14,7 @@ abstract class ApiConfig {
   /// - `localEmulator`: Android Emulator usando 10.0.2.2
   /// - `localLan`: dispositivo físico en la misma red WiFi
   /// - `production`: backend desplegado en Seenode
-  static const ApiEnvironment environment = ApiEnvironment.localEmulator;
+  static const ApiEnvironment environment = ApiEnvironment.production;
 
   /// URL local para Android Emulator.
   static const String _localEmulatorBaseUrl = 'http://10.0.2.2:5000/api/shipping';
