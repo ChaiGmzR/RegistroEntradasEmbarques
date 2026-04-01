@@ -43,6 +43,21 @@ class _HomeScreenState extends State<HomeScreen> {
 
   List<_HomeTabDefinition> _availableTabs() {
     final tabs = <_HomeTabDefinition>[];
+    final hasOperationalAccess = AuthService.hasMobileOperationalAccess;
+
+    if (!hasOperationalAccess) {
+      tabs.add(
+        const _HomeTabDefinition(
+          id: 'no_access',
+          screen: _NoPermissionsTab(),
+          destination: NavigationDestination(
+            icon: Icon(Icons.lock_outline_rounded),
+            selectedIcon: Icon(Icons.lock_rounded),
+            label: 'Acceso',
+          ),
+        ),
+      );
+    }
 
     if (AuthService.canViewDashboard) {
       tabs.add(
@@ -95,20 +110,6 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: Icon(Icons.settings_outlined),
             selectedIcon: Icon(Icons.settings_rounded),
             label: 'Ajustes',
-          ),
-        ),
-      );
-    }
-
-    if (tabs.isEmpty) {
-      tabs.add(
-        const _HomeTabDefinition(
-          id: 'no_access',
-          screen: _NoPermissionsTab(),
-          destination: NavigationDestination(
-            icon: Icon(Icons.lock_outline_rounded),
-            selectedIcon: Icon(Icons.lock_rounded),
-            label: 'Acceso',
           ),
         ),
       );
@@ -480,7 +481,7 @@ class _NoPermissionsTab extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               Text(
-                'Tu usuario no tiene accesos habilitados para el módulo de embarques.',
+                'Tu usuario no tiene permisos asignados para los módulos móviles disponibles en Registro Embarques.',
                 style: theme.textTheme.bodyMedium,
                 textAlign: TextAlign.center,
               ),

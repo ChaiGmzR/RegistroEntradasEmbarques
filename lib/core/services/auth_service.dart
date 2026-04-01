@@ -143,11 +143,88 @@ class AuthResult {
 abstract class AuthService {
   /// Cambia a `true` para pruebas sin backend.
   static const bool useMockData = false;
-  static const String viewDashboardPermission = 'view_shipping_dashboard';
-  static const String writeEntriesPermission = 'write_shipping_entries';
-  static const String viewHistoryPermission = 'view_shipping_history';
-  static const String viewSettingsPermission = 'view_shipping_settings';
-  static const String manageUsersPermission = 'manage_shipping_users';
+  static const Set<String> _fullAccessDepartments = {
+    'Sistemas',
+    'Gerencia',
+    'Administración',
+  };
+
+  // Catálogo compartido con la app de escritorio.
+  static const String viewWarehousingPermission = 'view_warehousing';
+  static const String writeWarehousingPermission = 'write_warehousing';
+  static const String multiEditWarehousingPermission = 'multi_edit_warehousing';
+  static const String viewOutgoingPermission = 'view_outgoing';
+  static const String writeOutgoingPermission = 'write_outgoing';
+  static const String viewInventoryPermission = 'view_inventory';
+  static const String viewIqcPermission = 'view_iqc';
+  static const String writeIqcPermission = 'write_iqc';
+  static const String viewQuarantinePermission = 'view_quarantine';
+  static const String sendQuarantinePermission = 'send_quarantine';
+  static const String releaseQuarantinePermission = 'release_quarantine';
+  static const String viewBlacklistPermission = 'view_blacklist';
+  static const String writeBlacklistPermission = 'write_blacklist';
+  static const String manageUsersPermission = 'manage_users';
+  static const String viewReportsPermission = 'view_reports';
+  static const String exportDataPermission = 'export_data';
+  static const String approveCancellationPermission = 'approve_cancellation';
+  static const String viewMaterialReturnPermission = 'view_material_return';
+  static const String writeMaterialReturnPermission = 'write_material_return';
+  static const String viewRequirementsPermission = 'view_requirements';
+  static const String writeRequirementsPermission = 'write_requirements';
+  static const String approveRequirementsPermission = 'approve_requirements';
+  static const String viewReentryPermission = 'view_reentry';
+  static const String writeReentryPermission = 'write_reentry';
+  static const String viewPendingExitsPermission = 'view_pending_exits';
+  static const String writePendingExitsPermission = 'write_pending_exits';
+  static const String viewAuditPermission = 'view_audit';
+  static const String startAuditPermission = 'start_audit';
+  static const String scanAuditPermission = 'scan_audit';
+  static const String viewMasterLabelsPermission = 'view_master_labels';
+  static const String writeMasterLabelsPermission = 'write_master_labels';
+  static const String viewWarehouseMapPermission = 'view_warehouse_map';
+  static const String createWarehouseZonesPermission = 'create_warehouse_zones';
+  static const String editWarehouseLocationsPermission =
+      'edit_warehouse_locations';
+  static const String manageWarehouseLayoutPermission =
+      'manage_warehouse_layout';
+
+  static const List<String> allPermissionKeys = [
+    viewWarehousingPermission,
+    writeWarehousingPermission,
+    multiEditWarehousingPermission,
+    viewOutgoingPermission,
+    writeOutgoingPermission,
+    viewInventoryPermission,
+    viewIqcPermission,
+    writeIqcPermission,
+    viewQuarantinePermission,
+    sendQuarantinePermission,
+    releaseQuarantinePermission,
+    viewBlacklistPermission,
+    writeBlacklistPermission,
+    manageUsersPermission,
+    viewReportsPermission,
+    exportDataPermission,
+    approveCancellationPermission,
+    viewMaterialReturnPermission,
+    writeMaterialReturnPermission,
+    viewRequirementsPermission,
+    writeRequirementsPermission,
+    approveRequirementsPermission,
+    viewReentryPermission,
+    writeReentryPermission,
+    viewPendingExitsPermission,
+    writePendingExitsPermission,
+    viewAuditPermission,
+    startAuditPermission,
+    scanAuditPermission,
+    viewMasterLabelsPermission,
+    writeMasterLabelsPermission,
+    viewWarehouseMapPermission,
+    createWarehouseZonesPermission,
+    editWarehouseLocationsPermission,
+    manageWarehouseLayoutPermission,
+  ];
 
   static const Duration _sessionDuration = Duration(hours: 24);
   static const String _userSessionKey = 'user_session';
@@ -166,16 +243,150 @@ abstract class AuthService {
       _currentUser?.permissions ?? const [];
 
   static bool hasPermission(String permissionKey) {
+    if (!isAuthenticated) {
+      return false;
+    }
+    if (hasFullAccess) {
+      return true;
+    }
     return currentPermissions.contains(permissionKey);
   }
 
-  static bool get canViewDashboard => hasPermission(viewDashboardPermission);
+  static bool hasAnyPermission(Iterable<String> permissionKeys) {
+    for (final permissionKey in permissionKeys) {
+      if (hasPermission(permissionKey)) {
+        return true;
+      }
+    }
+    return false;
+  }
 
-  static bool get canWriteEntries => hasPermission(writeEntriesPermission);
+  static bool get hasFullAccess {
+    final department = _currentUser?.department;
+    if (department == null) {
+      return false;
+    }
+    return _fullAccessDepartments.contains(department.trim());
+  }
 
-  static bool get canViewHistory => hasPermission(viewHistoryPermission);
+  static bool get canViewWarehousing =>
+      hasPermission(viewWarehousingPermission);
 
-  static bool get canViewSettings => hasPermission(viewSettingsPermission);
+  static bool get canWriteWarehousing =>
+      hasPermission(writeWarehousingPermission);
+
+  static bool get canMultiEditWarehousing =>
+      hasPermission(multiEditWarehousingPermission);
+
+  static bool get canViewOutgoing => hasPermission(viewOutgoingPermission);
+
+  static bool get canWriteOutgoing => hasPermission(writeOutgoingPermission);
+
+  static bool get canViewInventory => hasPermission(viewInventoryPermission);
+
+  static bool get canViewIqc => hasPermission(viewIqcPermission);
+
+  static bool get canWriteIqc => hasPermission(writeIqcPermission);
+
+  static bool get canViewQuarantine => hasPermission(viewQuarantinePermission);
+
+  static bool get canSendToQuarantine =>
+      hasPermission(sendQuarantinePermission);
+
+  static bool get canWriteQuarantine =>
+      hasPermission(releaseQuarantinePermission);
+
+  static bool get canViewBlacklist => hasPermission(viewBlacklistPermission);
+
+  static bool get canWriteBlacklist => hasPermission(writeBlacklistPermission);
+
+  static bool get canManageUsers => hasPermission(manageUsersPermission);
+
+  static bool get canViewReports => hasPermission(viewReportsPermission);
+
+  static bool get canExportData => hasPermission(exportDataPermission);
+
+  static bool get canApproveCancellation =>
+      hasPermission(approveCancellationPermission);
+
+  static bool get canViewMaterialReturn =>
+      hasPermission(viewMaterialReturnPermission);
+
+  static bool get canWriteMaterialReturn =>
+      hasPermission(writeMaterialReturnPermission);
+
+  static bool get canViewRequirements =>
+      hasPermission(viewRequirementsPermission);
+
+  static bool get canWriteRequirements =>
+      hasPermission(writeRequirementsPermission);
+
+  static bool get canApproveRequirements =>
+      hasPermission(approveRequirementsPermission);
+
+  static bool get canViewReentry => hasPermission(viewReentryPermission);
+
+  static bool get canWriteReentry => hasPermission(writeReentryPermission);
+
+  static bool get canViewPendingExits =>
+      hasPermission(viewPendingExitsPermission);
+
+  static bool get canWritePendingExits =>
+      hasPermission(writePendingExitsPermission);
+
+  static bool get canViewAudit => hasPermission(viewAuditPermission);
+
+  static bool get canManageAudit => hasPermission(startAuditPermission);
+
+  static bool get canScanAudit => hasPermission(scanAuditPermission);
+
+  static bool get canViewMasterLabels =>
+      hasPermission(viewMasterLabelsPermission);
+
+  static bool get canWriteMasterLabels =>
+      hasPermission(writeMasterLabelsPermission);
+
+  static bool get canViewWarehouseMap =>
+      hasPermission(viewWarehouseMapPermission);
+
+  static bool get canCreateWarehouseZones => hasAnyPermission(
+        [
+          createWarehouseZonesPermission,
+          manageWarehouseLayoutPermission,
+        ],
+      );
+
+  static bool get canEditWarehouseLocations => hasAnyPermission(
+        [
+          editWarehouseLocationsPermission,
+          manageWarehouseLayoutPermission,
+        ],
+      );
+
+  static bool get canManageWarehouseLayout =>
+      canCreateWarehouseZones || canEditWarehouseLocations;
+
+  // Aliases para la app móvil actual.
+  static bool get canViewDashboard => hasAnyPermission(
+        [
+          viewWarehousingPermission,
+          writeWarehousingPermission,
+        ],
+      );
+
+  static bool get canWriteEntries => canWriteWarehousing;
+
+  static bool get canViewHistory => hasAnyPermission(
+        [
+          viewWarehousingPermission,
+          writeWarehousingPermission,
+        ],
+      );
+
+  static bool get canViewSettings => isAuthenticated;
+
+  static bool get hasMobileOperationalAccess =>
+      canViewDashboard || canWriteEntries || canViewHistory;
 
   /// Restaura la sesión local si sigue vigente.
   static Future<bool> restoreSession() async {
@@ -438,10 +649,8 @@ abstract class AuthService {
   }
 
   static const List<String> _defaultMockPermissions = [
-    'view_shipping_dashboard',
-    'write_shipping_entries',
-    'view_shipping_history',
-    'view_shipping_settings',
+    viewWarehousingPermission,
+    writeWarehousingPermission,
   ];
 
   static final List<User> _mockUsers = [
@@ -470,7 +679,10 @@ abstract class AuthService {
       department: 'Calidad',
       cargo: 'Inspector de Calidad',
       isActive: true,
-      permissions: _defaultMockPermissions,
+      permissions: [
+        viewIqcPermission,
+        writeIqcPermission,
+      ],
     ),
     const User(
       id: '1',
@@ -481,7 +693,7 @@ abstract class AuthService {
       isActive: true,
       permissions: [
         ..._defaultMockPermissions,
-        'manage_shipping_users',
+        manageUsersPermission,
       ],
     ),
   ];
