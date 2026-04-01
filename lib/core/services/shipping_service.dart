@@ -66,7 +66,7 @@ class DailyStats {
 /// Servicio para operaciones de embarques y validación de calidad.
 class ShippingService {
   /// Consulta el estatus de calidad de un Box ID.
-  /// 
+  ///
   /// Retorna la información del Box ID incluyendo su estatus de calidad
   /// desde la tabla `quality_validations` de la base de datos.
   static Future<QualityCheckResult> checkQualityStatus(String boxId) async {
@@ -101,6 +101,9 @@ class ShippingService {
         boxId: data['box_id'] ?? boxId,
         status: _parseQualityStatus(data['quality_status']),
         scannedAt: DateTime.now(),
+        partNumber: data['part_number'] ?? data['box_id'] ?? boxId,
+        quantity: _parseQuantity(data['quantity'], data['lot_number']),
+        rawCode: data['raw_code'],
         productName: data['product_name'],
         lotNumber: data['lot_number'],
       );
@@ -115,7 +118,7 @@ class ShippingService {
   }
 
   /// Registra una entrada de embarque en el sistema.
-  /// 
+  ///
   /// Crea un registro en la tabla `shipping_entries` con la información
   /// del escaneo realizado.
   static Future<RegisterEntryResult> registerEntry({
@@ -193,12 +196,16 @@ class ShippingService {
     }
 
     final entriesJson = response.data!['entries'] as List<dynamic>? ?? [];
-    
+
     return entriesJson.map((json) {
       return BoxIdEntry(
         boxId: json['box_id'] ?? '',
         status: _parseQualityStatus(json['quality_status']),
-        scannedAt: DateTime.tryParse(json['scanned_at'] ?? '') ?? DateTime.now(),
+        scannedAt:
+            DateTime.tryParse(json['scanned_at'] ?? '') ?? DateTime.now(),
+        partNumber: json['part_number'] ?? json['box_id'],
+        quantity: _parseQuantity(json['quantity'], json['lot_number']),
+        rawCode: json['raw_code'],
         productName: json['product_name'],
         lotNumber: json['lot_number'],
       );
@@ -211,7 +218,8 @@ class ShippingService {
     final response = await ApiService.get(
       '${ApiConfig.shippingStatsEndpoint}/today',
       queryParams: {
-        'date': '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}',
+        'date':
+            '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}',
       },
     );
 
@@ -250,5 +258,24 @@ class ShippingService {
       case QualityStatus.inProcess:
         return 'in_process';
     }
+  }
+
+  static int? _parseQuantity(dynamic quantity, dynamic lotNumber) {
+    if (quantity is int) {
+      return quantity;
+    }
+
+    if (quantity is String) {
+      final parsedQuantity = int.tryParse(quantity);
+      if (parsedQuantity != null) {
+        return parsedQuantity;
+      }
+    }
+
+    if (lotNumber is String && lotNumber.startsWith('QTY:')) {
+      return int.tryParse(lotNumber.substring(4));
+    }
+
+    return null;
   }
 }

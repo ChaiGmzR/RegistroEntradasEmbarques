@@ -3,15 +3,15 @@ import 'shipping_service.dart';
 import 'cache_service.dart';
 
 /// Servicio para actualizaciones optimistas.
-/// 
+///
 /// Patrón: Mostrar resultado inmediato al usuario y sincronizar
 /// con el servidor en background. Si falla, revertir.
 class OptimisticUpdateService {
   /// Cola de operaciones pendientes de sincronizar.
   static final List<PendingOperation> _pendingQueue = [];
-  
+
   /// Registra una entrada de forma optimista.
-  /// 
+  ///
   /// 1. Muestra resultado inmediato al usuario
   /// 2. Encola la operación para sincronizar
   /// 3. Sincroniza en background
@@ -20,9 +20,13 @@ class OptimisticUpdateService {
     required String boxId,
     required QualityStatus status,
     required String scannedBy,
+    String? partNumber,
+    int? quantity,
+    String? rawCode,
     String? productName,
     String? lotNumber,
     String? warehouseZone,
+    String? notes,
     String? deviceId,
   }) async {
     final tempId = DateTime.now().millisecondsSinceEpoch;
@@ -30,13 +34,16 @@ class OptimisticUpdateService {
       boxId: boxId,
       status: status,
       scannedAt: DateTime.now(),
+      partNumber: partNumber ?? boxId,
+      quantity: quantity,
+      rawCode: rawCode,
       productName: productName,
       lotNumber: lotNumber,
     );
 
     // 1. Agregar a caché local inmediatamente
     _addToLocalHistory(entry);
-    
+
     // 2. Encolar para sincronización
     final operation = PendingOperation(
       id: tempId,
@@ -45,9 +52,13 @@ class OptimisticUpdateService {
         'box_id': boxId,
         'quality_status': status,
         'scanned_by': scannedBy,
+        'part_number': partNumber,
+        'quantity': quantity,
+        'raw_code': rawCode,
         'product_name': productName,
         'lot_number': lotNumber,
         'warehouse_zone': warehouseZone,
+        'notes': notes,
         'device_id': deviceId,
       },
       createdAt: DateTime.now(),
@@ -76,6 +87,7 @@ class OptimisticUpdateService {
         productName: data['product_name'],
         lotNumber: data['lot_number'],
         warehouseZone: data['warehouse_zone'],
+        notes: data['notes'],
         deviceId: data['device_id'],
       );
 
@@ -96,26 +108,28 @@ class OptimisticUpdateService {
 
   /// Agrega entrada al historial local.
   static void _addToLocalHistory(BoxIdEntry entry) {
-    final history = CacheService.get<List<BoxIdEntry>>('history:recent', 'history') ?? [];
+    final history =
+        CacheService.get<List<BoxIdEntry>>('history:recent', 'history') ?? [];
     history.insert(0, entry);
     CacheService.set('history:recent', history);
-    
+
     // Actualizar estadísticas locales
     _incrementLocalStats(entry.status);
   }
 
   /// Incrementa estadísticas locales.
   static void _incrementLocalStats(QualityStatus status) {
-    final stats = CacheService.get<Map<String, int>>('stats:today', 'stats') ?? {
-      'total': 0,
-      'released': 0,
-      'pending': 0,
-      'rejected': 0,
-      'inProcess': 0,
-    };
-    
+    final stats = CacheService.get<Map<String, int>>('stats:today', 'stats') ??
+        {
+          'total': 0,
+          'released': 0,
+          'pending': 0,
+          'rejected': 0,
+          'inProcess': 0,
+        };
+
     stats['total'] = (stats['total'] ?? 0) + 1;
-    
+
     switch (status) {
       case QualityStatus.released:
         stats['released'] = (stats['released'] ?? 0) + 1;
@@ -130,12 +144,12 @@ class OptimisticUpdateService {
         stats['inProcess'] = (stats['inProcess'] ?? 0) + 1;
         break;
     }
-    
+
     CacheService.set('stats:today', stats);
   }
 
   /// Retorna operaciones pendientes de sincronizar.
-  static List<PendingOperation> get pendingOperations => 
+  static List<PendingOperation> get pendingOperations =>
       _pendingQueue.where((op) => !op.synced).toList();
 
   /// Intenta sincronizar todas las operaciones pendientes.

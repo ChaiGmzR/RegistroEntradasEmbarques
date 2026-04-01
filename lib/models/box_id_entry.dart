@@ -70,6 +70,9 @@ class BoxIdEntry {
   final String boxId;
   final QualityStatus status;
   final DateTime scannedAt;
+  final String? partNumber;
+  final int? quantity;
+  final String? rawCode;
   final String? productName;
   final String? lotNumber;
 
@@ -77,6 +80,9 @@ class BoxIdEntry {
     required this.boxId,
     required this.status,
     required this.scannedAt,
+    this.partNumber,
+    this.quantity,
+    this.rawCode,
     this.productName,
     this.lotNumber,
   });

@@ -4,15 +4,18 @@ import 'core/theme/dark_theme.dart';
 import 'core/theme/light_theme.dart';
 import 'core/constants/app_constants.dart';
 import 'core/router/app_router.dart';
+import 'core/services/auth_service.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   // Orientación preferida para PDA
-  SystemChrome.setPreferredOrientations([
+  await SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
   ]);
+
+  await AuthService.restoreSession();
 
   runApp(const RegistroEmbarquesApp());
 }
@@ -53,7 +56,9 @@ class RegistroEmbarquesAppState extends State<RegistroEmbarquesApp> {
       theme: lightTheme,
       darkTheme: darkTheme,
       themeMode: _themeMode,
-      initialRoute: AppConstants.loginRoute,
+      initialRoute: AuthService.isAuthenticated
+          ? AppConstants.homeRoute
+          : AppConstants.loginRoute,
       onGenerateRoute: AppRouter.onGenerateRoute,
     );
   }

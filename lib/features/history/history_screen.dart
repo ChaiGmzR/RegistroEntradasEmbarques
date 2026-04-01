@@ -21,7 +21,7 @@ class HistoryScreen extends StatefulWidget {
 class _HistoryScreenState extends State<HistoryScreen> {
   QualityStatus? _selectedFilter;
   final _searchController = TextEditingController();
-  
+
   List<BoxIdEntry> _entries = [];
   bool _isLoading = true;
 
@@ -80,14 +80,15 @@ class _HistoryScreenState extends State<HistoryScreen> {
   List<BoxIdEntry> get _filteredEntries {
     var entries = _entries;
     if (_selectedFilter != null) {
-      entries =
-          entries.where((e) => e.status == _selectedFilter).toList();
+      entries = entries.where((e) => e.status == _selectedFilter).toList();
     }
     if (_searchController.text.isNotEmpty) {
       final query = _searchController.text.toLowerCase();
       entries = entries
           .where((e) =>
               e.boxId.toLowerCase().contains(query) ||
+              (e.partNumber?.toLowerCase().contains(query) ?? false) ||
+              (e.rawCode?.toLowerCase().contains(query) ?? false) ||
               (e.productName?.toLowerCase().contains(query) ?? false))
           .toList();
     }
@@ -117,7 +118,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
             child: AppTextField(
               label: 'Buscar',
-              hint: 'Box ID o nombre de producto',
+              hint: 'No. de parte, QR o detalle',
               prefixIcon: Icons.search_rounded,
               controller: _searchController,
               onChanged: (_) => setState(() {}),
@@ -147,34 +148,36 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 const SizedBox(width: 8),
                 _FilterChip(
                   label: 'Liberados',
-                  color: isDark ? AppColors.darkSuccess : AppColors.lightSuccess,
+                  color:
+                      isDark ? AppColors.darkSuccess : AppColors.lightSuccess,
                   isSelected: _selectedFilter == QualityStatus.released,
-                  onTap: () => setState(
-                      () => _selectedFilter = QualityStatus.released),
+                  onTap: () =>
+                      setState(() => _selectedFilter = QualityStatus.released),
                 ),
                 const SizedBox(width: 8),
                 _FilterChip(
                   label: 'Pendientes',
-                  color: isDark ? AppColors.darkWarning : AppColors.lightWarning,
+                  color:
+                      isDark ? AppColors.darkWarning : AppColors.lightWarning,
                   isSelected: _selectedFilter == QualityStatus.pending,
-                  onTap: () => setState(
-                      () => _selectedFilter = QualityStatus.pending),
+                  onTap: () =>
+                      setState(() => _selectedFilter = QualityStatus.pending),
                 ),
                 const SizedBox(width: 8),
                 _FilterChip(
                   label: 'Rechazados',
                   color: isDark ? AppColors.darkError : AppColors.lightError,
                   isSelected: _selectedFilter == QualityStatus.rejected,
-                  onTap: () => setState(
-                      () => _selectedFilter = QualityStatus.rejected),
+                  onTap: () =>
+                      setState(() => _selectedFilter = QualityStatus.rejected),
                 ),
                 const SizedBox(width: 8),
                 _FilterChip(
                   label: 'En Proceso',
                   color: isDark ? AppColors.darkInfo : AppColors.lightInfo,
                   isSelected: _selectedFilter == QualityStatus.inProcess,
-                  onTap: () => setState(
-                      () => _selectedFilter = QualityStatus.inProcess),
+                  onTap: () =>
+                      setState(() => _selectedFilter = QualityStatus.inProcess),
                 ),
               ],
             ),
@@ -182,8 +185,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
           // ── Contador ──
           Padding(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: Row(
               children: [
                 Text(
@@ -218,7 +220,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
                         child: ListView.separated(
                           padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
                           itemCount: entries.length,
-                          separatorBuilder: (_, __) => const SizedBox(height: 8),
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(height: 8),
                           itemBuilder: (context, index) {
                             final entry = entries[index];
                             return ScanEntryCard(
@@ -229,8 +232,15 @@ class _HistoryScreenState extends State<HistoryScreen> {
                                 arguments: ScanResultArguments(
                                   boxId: entry.boxId,
                                   status: entry.status,
+                                  scannedAt: entry.scannedAt,
+                                  partNumber: entry.partNumber,
+                                  quantity: entry.quantity,
+                                  rawCode: entry.rawCode,
                                   productName: entry.productName,
                                   lotNumber: entry.lotNumber,
+                                  skipQualityValidation:
+                                      entry.quantity != null ||
+                                          entry.rawCode != null,
                                 ),
                               ),
                             );

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../constants/app_constants.dart';
+import '../services/auth_service.dart';
 import '../../features/login/login_screen.dart';
 import '../../features/home/home_screen.dart';
 import '../../features/scan/scan_screen.dart';
@@ -10,7 +11,18 @@ import '../../features/settings/settings_screen.dart';
 /// Configuración de rutas de navegación de la app.
 class AppRouter {
   static Route<dynamic> onGenerateRoute(RouteSettings settings) {
-    switch (settings.name) {
+    final routeName = settings.name ?? AppConstants.loginRoute;
+    final isAuthenticated = AuthService.isAuthenticated;
+
+    if (!isAuthenticated && routeName != AppConstants.loginRoute) {
+      return _buildRoute(const LoginScreen(), settings);
+    }
+
+    if (isAuthenticated && routeName == AppConstants.loginRoute) {
+      return _buildRoute(const HomeScreen(), settings);
+    }
+
+    switch (routeName) {
       case AppConstants.loginRoute:
         return _buildRoute(const LoginScreen(), settings);
       case AppConstants.homeRoute:

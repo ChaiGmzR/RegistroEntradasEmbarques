@@ -115,7 +115,7 @@ class StatCard extends StatelessWidget {
   }
 }
 
-/// Tarjeta que muestra la información de un escaneo de Box ID.
+/// Tarjeta que muestra la información principal de un escaneo.
 class ScanEntryCard extends StatelessWidget {
   final BoxIdEntry entry;
   final VoidCallback? onTap;
@@ -130,6 +130,8 @@ class ScanEntryCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
+    final title = entry.partNumber ?? entry.boxId;
+    final detail = _buildDetailLine();
 
     return Card(
       child: InkWell(
@@ -161,7 +163,7 @@ class ScanEntryCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      entry.boxId,
+                      title,
                       style: theme.textTheme.titleMedium?.copyWith(
                         fontFamily: 'monospace',
                         fontWeight: FontWeight.w600,
@@ -169,10 +171,10 @@ class ScanEntryCard extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    if (entry.productName != null) ...[
+                    if (detail != null) ...[
                       const SizedBox(height: 2),
                       Text(
-                        entry.productName!,
+                        detail,
                         style: theme.textTheme.bodyMedium,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -203,6 +205,13 @@ class ScanEntryCard extends StatelessWidget {
     final hour = dt.hour.toString().padLeft(2, '0');
     final minute = dt.minute.toString().padLeft(2, '0');
     return '$hour:$minute hrs';
+  }
+
+  String? _buildDetailLine() {
+    if (entry.quantity != null) {
+      return 'Cantidad: ${entry.quantity}';
+    }
+    return entry.productName;
   }
 }
 

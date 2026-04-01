@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../core/constants/app_constants.dart';
+import '../../core/services/auth_service.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/services/update_service.dart';
 import '../../core/config/update_config.dart';
@@ -38,7 +39,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               children: [
                 const Icon(Icons.check_circle_rounded, color: Colors.white),
                 const SizedBox(width: 12),
-                Text('Estas en la ultima version (v${UpdateConfig.currentVersion})'),
+                Text(
+                    'Estas en la ultima version (v${UpdateConfig.currentVersion})'),
               ],
             ),
             backgroundColor: Theme.of(context).brightness == Brightness.dark
@@ -71,6 +73,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final appState = RegistroEmbarquesApp.of(context);
+    final user = AuthService.currentUser;
+    final displayName = (user?.fullName.isNotEmpty ?? false)
+        ? user!.fullName
+        : 'Sin sesión activa';
+    final displayRole = [
+      user?.department,
+      user?.cargo,
+    ].where((value) => value != null && value.isNotEmpty).join(' • ');
 
     return Scaffold(
       appBar: AppBar(
@@ -110,20 +120,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Operador 1247',
+                          displayName,
                           style: theme.textTheme.titleMedium,
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          'Almacén de Embarques • Turno A',
+                          displayRole.isNotEmpty
+                              ? displayRole
+                              : 'Sin información de perfil',
                           style: theme.textTheme.bodySmall,
                         ),
                       ],
                     ),
                   ),
                   Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 4),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(
                       color: isDark
                           ? AppColors.darkSuccessSoft
@@ -156,9 +168,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             subtitle: 'Reduce el brillo y la fatiga visual',
             trailing: Switch.adaptive(
               value: isDark,
-              activeTrackColor: isDark
-                  ? AppColors.darkPrimary
-                  : AppColors.lightPrimary,
+              activeTrackColor:
+                  isDark ? AppColors.darkPrimary : AppColors.lightPrimary,
               onChanged: (value) {
                 appState?.toggleTheme();
               },
@@ -175,11 +186,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             subtitle: 'Retroalimentación háptica al leer un código',
             trailing: Switch.adaptive(
               value: _vibrationOnScan,
-              activeTrackColor: isDark
-                  ? AppColors.darkPrimary
-                  : AppColors.lightPrimary,
-              onChanged: (value) =>
-                  setState(() => _vibrationOnScan = value),
+              activeTrackColor:
+                  isDark ? AppColors.darkPrimary : AppColors.lightPrimary,
+              onChanged: (value) => setState(() => _vibrationOnScan = value),
             ),
           ),
           _SettingsTile(
@@ -188,11 +197,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             subtitle: 'Reproducir tono al leer un código',
             trailing: Switch.adaptive(
               value: _soundOnScan,
-              activeTrackColor: isDark
-                  ? AppColors.darkPrimary
-                  : AppColors.lightPrimary,
-              onChanged: (value) =>
-                  setState(() => _soundOnScan = value),
+              activeTrackColor:
+                  isDark ? AppColors.darkPrimary : AppColors.lightPrimary,
+              onChanged: (value) => setState(() => _soundOnScan = value),
             ),
           ),
           _SettingsTile(
@@ -201,11 +208,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             subtitle: 'Validar estatus de calidad al escanear',
             trailing: Switch.adaptive(
               value: _autoValidate,
-              activeTrackColor: isDark
-                  ? AppColors.darkPrimary
-                  : AppColors.lightPrimary,
-              onChanged: (value) =>
-                  setState(() => _autoValidate = value),
+              activeTrackColor:
+                  isDark ? AppColors.darkPrimary : AppColors.lightPrimary,
+              onChanged: (value) => setState(() => _autoValidate = value),
             ),
           ),
           const SizedBox(height: 20),
@@ -270,7 +275,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
           // ── Cerrar sesión ──
           OutlinedButton.icon(
-            onPressed: () {
+            onPressed: () async {
+              await AuthService.logout();
+              if (!context.mounted) return;
               Navigator.pushNamedAndRemoveUntil(
                 context,
                 AppConstants.loginRoute,
@@ -352,7 +359,8 @@ class _SettingsTile extends StatelessWidget {
                   children: [
                     Text(
                       title,
-                      style: theme.textTheme.titleMedium?.copyWith(fontSize: 14),
+                      style:
+                          theme.textTheme.titleMedium?.copyWith(fontSize: 14),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -374,5 +382,3 @@ class _SettingsTile extends StatelessWidget {
     );
   }
 }
-
-
