@@ -5,6 +5,9 @@ import 'core/theme/light_theme.dart';
 import 'core/constants/app_constants.dart';
 import 'core/router/app_router.dart';
 import 'core/services/auth_service.dart';
+import 'core/services/update_service.dart';
+import 'core/config/update_config.dart';
+import 'shared/widgets/update_dialog.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -22,7 +25,12 @@ Future<void> main() async {
 
 /// Aplicación principal: Registro de Entradas de Embarques.
 class RegistroEmbarquesApp extends StatefulWidget {
-  const RegistroEmbarquesApp({super.key});
+  final bool enableStartupUpdateCheck;
+
+  const RegistroEmbarquesApp({
+    super.key,
+    this.enableStartupUpdateCheck = true,
+  });
 
   /// Acceso global al state para cambio de tema (mockup).
   static RegistroEmbarquesAppState? of(BuildContext context) =>
@@ -33,9 +41,21 @@ class RegistroEmbarquesApp extends StatefulWidget {
 }
 
 class RegistroEmbarquesAppState extends State<RegistroEmbarquesApp> {
+  final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
   ThemeMode _themeMode = ThemeMode.dark;
+  bool _startupUpdateCheckStarted = false;
 
   ThemeMode get themeMode => _themeMode;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.enableStartupUpdateCheck) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _checkForStartupUpdates();
+      });
+    }
+  }
 
   void setThemeMode(ThemeMode mode) {
     setState(() => _themeMode = mode);
@@ -48,9 +68,30 @@ class RegistroEmbarquesAppState extends State<RegistroEmbarquesApp> {
     });
   }
 
+  Future<void> _checkForStartupUpdates() async {
+    if (_startupUpdateCheckStarted || !UpdateConfig.checkOnStartup) {
+      return;
+    }
+
+    _startupUpdateCheckStarted = true;
+
+    final updateInfo = await UpdateService.checkForUpdate();
+    if (!mounted || updateInfo == null) {
+      return;
+    }
+
+    final navigatorContext = _navigatorKey.currentContext;
+    if (navigatorContext == null || !navigatorContext.mounted) {
+      return;
+    }
+
+    await UpdateDialog.show(navigatorContext, updateInfo);
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: _navigatorKey,
       title: AppConstants.appName,
       debugShowCheckedModeBanner: false,
       theme: lightTheme,

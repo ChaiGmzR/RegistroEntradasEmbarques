@@ -11,7 +11,9 @@ import 'package:registro_entradas_embarques/main.dart';
 
 void main() {
   testWidgets('App renders login screen', (WidgetTester tester) async {
-    await tester.pumpWidget(const RegistroEmbarquesApp());
+    await tester.pumpWidget(
+      const RegistroEmbarquesApp(enableStartupUpdateCheck: false),
+    );
 
     expect(find.text('Registro Embarques'), findsOneWidget);
     expect(find.text('Iniciar Sesión'), findsOneWidget);

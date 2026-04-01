@@ -6,14 +6,11 @@ import '../../core/services/shipping_service.dart';
 import '../../core/services/cache_service.dart';
 import '../../core/services/connectivity_service.dart';
 import '../../core/services/optimistic_update_service.dart';
-import '../../core/services/update_service.dart';
-import '../../core/config/update_config.dart';
 import '../../models/box_id_entry.dart';
 import '../../models/mock_data.dart';
 import '../../shared/widgets/common_widgets.dart';
 import '../../shared/widgets/connection_indicator.dart';
 import '../../shared/widgets/shimmer_loading.dart';
-import '../../shared/widgets/update_dialog.dart';
 import '../scan/scan_screen.dart';
 import '../history/history_screen.dart';
 import '../settings/settings_screen.dart';
@@ -171,18 +168,6 @@ class _DashboardTabState extends State<_DashboardTab> {
     _loadData();
     // Iniciar monitoreo de conectividad
     ConnectivityService.startMonitoring();
-    // Verificar actualizaciones al iniciar
-    _checkForUpdates();
-  }
-
-  Future<void> _checkForUpdates() async {
-    if (!UpdateConfig.checkOnStartup) return;
-
-    final updateInfo = await UpdateService.checkForUpdate();
-    if (updateInfo != null && mounted) {
-      // Mostrar dialogo de actualizacion disponible
-      UpdateDialog.show(context, updateInfo);
-    }
   }
 
   Future<void> _loadData() async {
