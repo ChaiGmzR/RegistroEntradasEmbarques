@@ -1,31 +1,22 @@
 import '../../models/box_id_entry.dart';
-import 'shipping_service.dart';
 import 'cache_service.dart';
+import 'shipping_service.dart';
 
 /// Servicio para actualizaciones optimistas.
-///
-/// Patrón: Mostrar resultado inmediato al usuario y sincronizar
-/// con el servidor en background. Si falla, revertir.
 class OptimisticUpdateService {
-  /// Cola de operaciones pendientes de sincronizar.
   static final List<PendingOperation> _pendingQueue = [];
 
-  /// Registra una entrada de forma optimista.
-  ///
-  /// 1. Muestra resultado inmediato al usuario
-  /// 2. Encola la operación para sincronizar
-  /// 3. Sincroniza en background
-  /// 4. Si falla, notifica pero no bloquea
-  static Future<OptimisticResult> registerEntryOptimistic({
+  static Future<OptimisticResult> registerMovementOptimistic({
     required String boxId,
-    required QualityStatus status,
+    required MovementType status,
     required String scannedBy,
     String? partNumber,
     int? quantity,
     String? rawCode,
     String? productName,
     String? lotNumber,
-    String? warehouseZone,
+    String? location,
+    String? destinationArea,
     String? notes,
     String? deviceId,
   }) async {
@@ -39,64 +30,127 @@ class OptimisticUpdateService {
       rawCode: rawCode,
       productName: productName,
       lotNumber: lotNumber,
+      detail: _buildDetail(
+        status: status,
+        quantity: quantity,
+        location: location,
+        destinationArea: destinationArea,
+      ),
+      location: location ?? destinationArea,
+      notes: notes,
     );
 
-    // 1. Agregar a caché local inmediatamente
     _addToLocalHistory(entry);
 
-    // 2. Encolar para sincronización
     final operation = PendingOperation(
       id: tempId,
-      type: OperationType.createEntry,
+      type: status == MovementType.exit
+          ? OperationType.createExit
+          : OperationType.createEntry,
       data: {
         'box_id': boxId,
-        'quality_status': status,
+        'movement_type': status.name,
         'scanned_by': scannedBy,
         'part_number': partNumber,
         'quantity': quantity,
         'raw_code': rawCode,
         'product_name': productName,
         'lot_number': lotNumber,
-        'warehouse_zone': warehouseZone,
+        'location': location,
+        'destination_area': destinationArea,
         'notes': notes,
         'device_id': deviceId,
       },
       createdAt: DateTime.now(),
     );
     _pendingQueue.add(operation);
-
-    // 3. Intentar sincronizar en background (no bloquea)
     _syncInBackground(operation);
 
     return OptimisticResult(
       success: true,
       tempId: tempId,
       entry: entry,
-      message: 'Registro guardado',
+      message: status == MovementType.exit
+          ? 'Salida guardada'
+          : 'Entrada guardada',
     );
   }
 
-  /// Sincroniza una operación en background.
+  static Future<OptimisticResult> registerEntryOptimistic({
+    required String boxId,
+    required String scannedBy,
+    String? partNumber,
+    int? quantity,
+    String? rawCode,
+    String? productName,
+    String? lotNumber,
+    String? location,
+    String? notes,
+    String? deviceId,
+  }) {
+    return registerMovementOptimistic(
+      boxId: boxId,
+      status: MovementType.entry,
+      scannedBy: scannedBy,
+      partNumber: partNumber,
+      quantity: quantity,
+      rawCode: rawCode,
+      productName: productName,
+      lotNumber: lotNumber,
+      location: location,
+      notes: notes,
+      deviceId: deviceId,
+    );
+  }
+
+  static Future<OptimisticResult> registerExitOptimistic({
+    required String boxId,
+    required String scannedBy,
+    String? partNumber,
+    int? quantity,
+    String? rawCode,
+    String? destinationArea,
+    String? notes,
+  }) {
+    return registerMovementOptimistic(
+      boxId: boxId,
+      status: MovementType.exit,
+      scannedBy: scannedBy,
+      partNumber: partNumber,
+      quantity: quantity,
+      rawCode: rawCode,
+      destinationArea: destinationArea,
+      notes: notes,
+    );
+  }
+
   static Future<void> _syncInBackground(PendingOperation operation) async {
     try {
       final data = operation.data;
-      final result = await ShippingService.registerEntry(
-        boxId: data['box_id'],
-        status: data['quality_status'],
-        scannedBy: data['scanned_by'],
-        productName: data['product_name'],
-        lotNumber: data['lot_number'],
-        warehouseZone: data['warehouse_zone'],
-        notes: data['notes'],
-        deviceId: data['device_id'],
-      );
+      final result = operation.type == OperationType.createExit
+          ? await ShippingService.registerExit(
+              partNumber: data['part_number'],
+              quantity: data['quantity'] ?? 0,
+              scannedBy: data['scanned_by'],
+              rawCode: data['raw_code'],
+              destinationArea: data['destination_area'],
+              reason: data['notes'],
+              remarks: data['notes'],
+            )
+          : await ShippingService.registerEntry(
+              partNumber: data['part_number'],
+              quantity: data['quantity'] ?? 0,
+              scannedBy: data['scanned_by'],
+              rawCode: data['raw_code'],
+              location: data['location'],
+              notes: data['notes'],
+              deviceId: data['device_id'],
+            );
 
       if (result.success) {
-        // Éxito: remover de cola
         _pendingQueue.removeWhere((op) => op.id == operation.id);
         operation.synced = true;
       } else {
-        // Fallo: marcar para reintento
         operation.retryCount++;
         operation.lastError = result.error;
       }
@@ -106,69 +160,86 @@ class OptimisticUpdateService {
     }
   }
 
-  /// Agrega entrada al historial local.
   static void _addToLocalHistory(BoxIdEntry entry) {
-    final history =
-        CacheService.get<List<BoxIdEntry>>('history:recent', 'history') ?? [];
+    final history = CacheService.getHistory() ?? [];
     history.insert(0, entry);
-    CacheService.set('history:recent', history);
-
-    // Actualizar estadísticas locales
+    CacheService.setHistory(history);
     _incrementLocalStats(entry.status);
   }
 
-  /// Incrementa estadísticas locales.
-  static void _incrementLocalStats(QualityStatus status) {
-    final stats = CacheService.get<Map<String, int>>('stats:today', 'stats') ??
+  static void _incrementLocalStats(MovementType status) {
+    final stats = CacheService.getStats()?.cast<String, int>() ??
         {
           'total': 0,
-          'released': 0,
-          'pending': 0,
-          'rejected': 0,
-          'inProcess': 0,
+          'entries': 0,
+          'exits': 0,
+          'returns': 0,
+          'inventoryQuantity': 0,
         };
 
     stats['total'] = (stats['total'] ?? 0) + 1;
 
     switch (status) {
-      case QualityStatus.released:
-        stats['released'] = (stats['released'] ?? 0) + 1;
+      case MovementType.entry:
+        stats['entries'] = (stats['entries'] ?? 0) + 1;
         break;
-      case QualityStatus.pending:
-        stats['pending'] = (stats['pending'] ?? 0) + 1;
+      case MovementType.exit:
+        stats['exits'] = (stats['exits'] ?? 0) + 1;
         break;
-      case QualityStatus.rejected:
-        stats['rejected'] = (stats['rejected'] ?? 0) + 1;
+      case MovementType.materialReturn:
+        stats['returns'] = (stats['returns'] ?? 0) + 1;
         break;
-      case QualityStatus.inProcess:
-        stats['inProcess'] = (stats['inProcess'] ?? 0) + 1;
+      case MovementType.adjustment:
+        stats['returns'] = (stats['returns'] ?? 0) + 1;
         break;
     }
 
-    CacheService.set('stats:today', stats);
+    CacheService.setStats(stats);
   }
 
-  /// Retorna operaciones pendientes de sincronizar.
+  static String _buildDetail({
+    required MovementType status,
+    required int? quantity,
+    String? location,
+    String? destinationArea,
+  }) {
+    switch (status) {
+      case MovementType.entry:
+        if (location != null && location.isNotEmpty) {
+          return 'Cant: ${quantity ?? 0} • Ubicación: $location';
+        }
+        return 'Cant: ${quantity ?? 0}';
+      case MovementType.exit:
+        if (destinationArea != null && destinationArea.isNotEmpty) {
+          return 'Cant: ${quantity ?? 0} • Destino: $destinationArea';
+        }
+        return 'Cant: ${quantity ?? 0}';
+      case MovementType.materialReturn:
+        return 'Cant: ${quantity ?? 0} • Retorno';
+      case MovementType.adjustment:
+        return 'Cant: ${quantity ?? 0} • Ajuste';
+    }
+  }
+
   static List<PendingOperation> get pendingOperations =>
       _pendingQueue.where((op) => !op.synced).toList();
 
-  /// Intenta sincronizar todas las operaciones pendientes.
   static Future<int> syncAllPending() async {
     int synced = 0;
     for (final op in _pendingQueue.where((op) => !op.synced)) {
       await _syncInBackground(op);
-      if (op.synced) synced++;
+      if (op.synced) {
+        synced++;
+      }
     }
     return synced;
   }
 
-  /// Limpia operaciones sincronizadas.
   static void cleanSynced() {
     _pendingQueue.removeWhere((op) => op.synced);
   }
 }
 
-/// Resultado de operación optimista.
 class OptimisticResult {
   final bool success;
   final int tempId;
@@ -185,7 +256,6 @@ class OptimisticResult {
   });
 }
 
-/// Operación pendiente de sincronizar.
 class PendingOperation {
   final int id;
   final OperationType type;
@@ -208,6 +278,7 @@ class PendingOperation {
 
 enum OperationType {
   createEntry,
+  createExit,
   updateEntry,
   deleteEntry,
 }

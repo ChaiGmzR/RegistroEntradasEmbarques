@@ -1,11 +1,10 @@
 import 'package:flutter/material.dart';
+
 import '../../core/theme/app_colors.dart';
 import '../../models/box_id_entry.dart';
 import '../../shared/widgets/common_widgets.dart';
 import 'scan_screen.dart';
 
-/// Pantalla de resultado de escaneo (Mockup).
-/// Muestra el estado de calidad del Box ID escaneado.
 class ScanResultScreen extends StatelessWidget {
   final ScanResultArguments? arguments;
 
@@ -17,34 +16,26 @@ class ScanResultScreen extends StatelessWidget {
     final isDark = theme.brightness == Brightness.dark;
     final args = arguments ??
         ScanResultArguments(
-          boxId: 'BOX-XXXX-XXXXXX',
-          status: QualityStatus.released,
+          boxId: 'EBR-000-TEST',
+          status: MovementType.entry,
           scannedAt: DateTime(2026, 2, 18, 14, 32),
+          partNumber: 'EBR-000-TEST',
+          quantity: 1,
+          detail: 'Cant: 1 • Ubicación: PDA-TC15',
         );
 
     final status = args.status;
-    final isCaptureMode = args.skipQualityValidation;
-    final statusColor = isCaptureMode
-        ? (isDark ? AppColors.darkSuccess : AppColors.lightSuccess)
-        : status.color(context);
-    final statusSoftColor = isCaptureMode
-        ? (isDark ? AppColors.darkSuccessSoft : AppColors.lightSuccessSoft)
-        : status.softColor(context);
-    final statusIcon =
-        isCaptureMode ? Icons.playlist_add_check_circle_rounded : status.icon;
-    final statusTitle =
-        isCaptureMode ? 'CAPTURA EXITOSA' : status.label.toUpperCase();
+    final statusColor = status.color(context);
+    final statusSoftColor = status.softColor(context);
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-            isCaptureMode ? 'Resultado de Captura' : 'Resultado de Escaneo'),
+        title: const Text('Detalle del Movimiento'),
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Column(
           children: [
-            // ── Indicador principal de estado ──
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(28),
@@ -65,14 +56,14 @@ class ScanResultScreen extends StatelessWidget {
                       shape: BoxShape.circle,
                     ),
                     child: Icon(
-                      statusIcon,
+                      status.icon,
                       size: 48,
                       color: statusColor,
                     ),
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    statusTitle,
+                    '${status.label.toUpperCase()} REGISTRADA',
                     style: theme.textTheme.headlineSmall?.copyWith(
                       color: statusColor,
                       fontWeight: FontWeight.bold,
@@ -81,7 +72,7 @@ class ScanResultScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    _getStatusMessage(status, isCaptureMode),
+                    _getStatusMessage(status),
                     style: theme.textTheme.bodyMedium?.copyWith(
                       color: statusColor.withValues(alpha: 0.85),
                     ),
@@ -91,108 +82,89 @@ class ScanResultScreen extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 20),
-
-            // ── Detalle del Box ID ──
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    SectionHeader(
-                      title: isCaptureMode
-                          ? 'Detalle del registro'
-                          : 'Detalle del Box ID',
-                    ),
+                    const SectionHeader(title: 'Detalle del registro'),
                     const SizedBox(height: 14),
-                    if (isCaptureMode) ...[
-                      _DetailRow(
-                        label: 'No. de parte',
-                        value: args.partNumber ?? args.boxId,
-                        icon: Icons.inventory_2_outlined,
-                        isMono: true,
-                      ),
+                    _DetailRow(
+                      label: 'No. de parte',
+                      value: args.partNumber ?? args.boxId,
+                      icon: Icons.inventory_2_outlined,
+                      isMono: true,
+                    ),
+                    const Divider(height: 20),
+                    _DetailRow(
+                      label: 'Cantidad',
+                      value: args.quantity?.toString() ?? 'N/A',
+                      icon: Icons.numbers_rounded,
+                    ),
+                    const Divider(height: 20),
+                    _DetailRow(
+                      label: 'QR escaneado',
+                      value: args.rawCode ?? 'N/A',
+                      icon: Icons.qr_code_rounded,
+                      isMono: true,
+                    ),
+                    if (args.detail != null && args.detail!.isNotEmpty) ...[
                       const Divider(height: 20),
                       _DetailRow(
-                        label: 'Cantidad',
-                        value: args.quantity?.toString() ?? 'N/A',
-                        icon: Icons.numbers_rounded,
+                        label: 'Detalle',
+                        value: args.detail!,
+                        icon: Icons.info_outline_rounded,
                       ),
-                      const Divider(height: 20),
-                      _DetailRow(
-                        label: 'QR escaneado',
-                        value: args.rawCode ?? 'N/A',
-                        icon: Icons.qr_code_rounded,
-                        isMono: true,
-                      ),
-                      const Divider(height: 20),
-                    ] else ...[
-                      _DetailRow(
-                        label: 'Box ID',
-                        value: args.boxId,
-                        icon: Icons.qr_code_rounded,
-                        isMono: true,
-                      ),
-                      const Divider(height: 20),
-                      _DetailRow(
-                        label: 'Producto',
-                        value: args.productName ?? 'N/A',
-                        icon: Icons.inventory_2_outlined,
-                      ),
-                      const Divider(height: 20),
-                      _DetailRow(
-                        label: 'Lote',
-                        value: args.lotNumber ?? 'N/A',
-                        icon: Icons.numbers_rounded,
-                      ),
-                      const Divider(height: 20),
                     ],
+                    if (args.notes != null && args.notes!.isNotEmpty) ...[
+                      const Divider(height: 20),
+                      _DetailRow(
+                        label: 'Resultado',
+                        value: args.notes!,
+                        icon: Icons.check_circle_outline_rounded,
+                      ),
+                    ],
+                    const Divider(height: 20),
                     _DetailRow(
                       label: 'Fecha / Hora',
                       value: _formatDateTime(args.scannedAt),
                       icon: Icons.access_time_rounded,
                     ),
-                    if (!isCaptureMode) ...[
-                      const Divider(height: 20),
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.verified_rounded,
-                            size: 18,
-                            color: isDark
-                                ? AppColors.darkTextDisabled
-                                : AppColors.lightTextDisabled,
-                          ),
-                          const SizedBox(width: 10),
-                          Text('Estado', style: theme.textTheme.bodyMedium),
-                          const Spacer(),
-                          SizedBox(
-                            width: 100,
-                            child: StatusBadge(status: status),
-                          ),
-                        ],
-                      ),
-                    ],
+                    const Divider(height: 20),
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.verified_rounded,
+                          size: 18,
+                          color: isDark
+                              ? AppColors.darkTextDisabled
+                              : AppColors.lightTextDisabled,
+                        ),
+                        const SizedBox(width: 10),
+                        Text('Movimiento', style: theme.textTheme.bodyMedium),
+                        const Spacer(),
+                        SizedBox(
+                          width: 110,
+                          child: StatusBadge(status: status),
+                        ),
+                      ],
+                    ),
                   ],
                 ),
               ),
             ),
             const SizedBox(height: 24),
-
-            // ── Acciones ──
-            if (isCaptureMode || status == QualityStatus.released) ...[
-              AppPrimaryButton(
-                label: isCaptureMode ? 'Finalizar' : 'Confirmar Entrada',
-                icon: Icons.check_rounded,
-                onPressed: () => _showConfirmDialog(context),
-              ),
-              const SizedBox(height: 12),
-            ],
+            AppPrimaryButton(
+              label: 'Finalizar',
+              icon: Icons.check_rounded,
+              onPressed: () => _showConfirmDialog(context, status),
+            ),
+            const SizedBox(height: 12),
             OutlinedButton.icon(
               onPressed: () => Navigator.pop(context),
               icon: const Icon(Icons.qr_code_scanner_rounded),
-              label: Text(
-                  isCaptureMode ? 'Escanear otro QR' : 'Escanear otro Box ID'),
+              label: const Text('Escanear otro QR'),
               style: OutlinedButton.styleFrom(
                 minimumSize: const Size(double.infinity, 48),
               ),
@@ -203,24 +175,20 @@ class ScanResultScreen extends StatelessWidget {
     );
   }
 
-  String _getStatusMessage(QualityStatus status, bool isCaptureMode) {
-    if (isCaptureMode) {
-      return 'El QR fue procesado correctamente y la entrada quedó lista para registrarse.';
-    }
-
+  String _getStatusMessage(MovementType status) {
     switch (status) {
-      case QualityStatus.released:
-        return 'Este producto ha sido liberado por calidad y puede dar entrada al almacén.';
-      case QualityStatus.pending:
-        return 'Este producto está pendiente de revisión por calidad. No puede dar entrada aún.';
-      case QualityStatus.rejected:
-        return 'Este producto fue rechazado por calidad. Se debe devolver al proveedor.';
-      case QualityStatus.inProcess:
-        return 'Este producto está en proceso de inspección. Espere a la resolución.';
+      case MovementType.entry:
+        return 'El material fue agregado correctamente al inventario compartido.';
+      case MovementType.exit:
+        return 'El material fue descontado correctamente del inventario compartido.';
+      case MovementType.materialReturn:
+        return 'El retorno quedó registrado correctamente en inventario.';
+      case MovementType.adjustment:
+        return 'El ajuste quedó registrado correctamente.';
     }
   }
 
-  void _showConfirmDialog(BuildContext context) {
+  void _showConfirmDialog(BuildContext context, MovementType status) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     showDialog(
       context: context,
@@ -228,15 +196,15 @@ class ScanResultScreen extends StatelessWidget {
         backgroundColor:
             isDark ? AppColors.darkSurfaceElevated : AppColors.lightSurface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Row(
+        title: Row(
           children: [
-            Icon(Icons.check_circle_rounded, color: Color(0xFF16A34A)),
-            SizedBox(width: 10),
-            Text('Entrada Registrada'),
+            Icon(status.icon, color: status.color(context)),
+            const SizedBox(width: 10),
+            Text('${status.label} registrada'),
           ],
         ),
-        content: const Text(
-          'La entrada del producto ha sido registrada exitosamente en el almacén de embarques.',
+        content: Text(
+          _getStatusMessage(status),
         ),
         actions: [
           TextButton(

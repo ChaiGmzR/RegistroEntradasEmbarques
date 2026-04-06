@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import '../config/api_config.dart';
 
 /// Servicio para monitorear conectividad y latencia.
 /// 
@@ -28,29 +29,32 @@ class ConnectivityService {
   /// Calidad de conexión actual.
   static ConnectionQuality get quality => _quality;
 
-  /// Verifica la conectividad haciendo ping al servidor.
-  static Future<bool> checkConnectivity({String? customHost}) async {
-    final host = customHost ?? 'tu-backend-mes.seenode.com';
-    
+  /// Verifica la conectividad contra el backend real de la app.
+  static Future<bool> checkConnectivity({
+    String? customUrl,
+  }) async {
+    final healthUrl = customUrl ?? ApiConfig.healthCheckUrl;
+    HttpClient? client;
+
     try {
       final stopwatch = Stopwatch()..start();
-      
-      final result = await InternetAddress.lookup(host)
-          .timeout(const Duration(seconds: 5));
-      
+      client = HttpClient()
+        ..connectionTimeout = const Duration(seconds: 5);
+
+      final request = await client.getUrl(Uri.parse(healthUrl));
+      final response = await request.close().timeout(const Duration(seconds: 5));
+      await response.drain();
+
       stopwatch.stop();
       _latencyMs = stopwatch.elapsedMilliseconds;
-      
       final wasOnline = _isOnline;
-      _isOnline = result.isNotEmpty && result[0].rawAddress.isNotEmpty;
-      
-      // Determinar calidad basada en latencia
+      _isOnline = response.statusCode >= 200 && response.statusCode < 300;
       _updateQuality();
-      
+
       if (wasOnline != _isOnline) {
         _connectivityController.add(_isOnline);
       }
-      
+
       return _isOnline;
     } on SocketException {
       _setOffline();
@@ -61,6 +65,8 @@ class ConnectivityService {
     } catch (e) {
       _setOffline();
       return false;
+    } finally {
+      client?.close(force: true);
     }
   }
 
@@ -124,6 +130,7 @@ class ConnectivityService {
   
   static void startMonitoring({Duration interval = const Duration(seconds: 30)}) {
     _monitorTimer?.cancel();
+    Timer.run(checkConnectivity);
     _monitorTimer = Timer.periodic(interval, (_) => checkConnectivity());
   }
 
@@ -165,8 +172,6 @@ extension ConnectionQualityExtension on ConnectionQuality {
   }
 
   bool get showIndicator {
-    return this == ConnectionQuality.fair || 
-           this == ConnectionQuality.poor || 
-           this == ConnectionQuality.offline;
+    return this == ConnectionQuality.offline;
   }
 }

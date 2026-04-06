@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
-import '../../core/theme/app_colors.dart';
 import '../../models/box_id_entry.dart';
 
 /// Chip que muestra el estado de calidad con color semántico.
 class StatusBadge extends StatelessWidget {
-  final QualityStatus status;
+  final MovementType status;
   final bool compact;
 
   const StatusBadge({
@@ -129,7 +128,6 @@ class ScanEntryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
     final title = entry.partNumber ?? entry.boxId;
     final detail = _buildDetailLine();
 
@@ -145,14 +143,12 @@ class ScanEntryCard extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: isDark
-                      ? AppColors.darkInfoSoft
-                      : AppColors.lightAccentHighlight,
+                  color: entry.status.softColor(context),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Icon(
-                  Icons.qr_code_scanner_rounded,
-                  color: isDark ? AppColors.darkInfo : AppColors.lightPrimary,
+                  entry.status.icon,
+                  color: entry.status.color(context),
                   size: 22,
                 ),
               ),
@@ -208,6 +204,9 @@ class ScanEntryCard extends StatelessWidget {
   }
 
   String? _buildDetailLine() {
+    if (entry.detail != null && entry.detail!.isNotEmpty) {
+      return entry.detail;
+    }
     if (entry.quantity != null) {
       return 'Cantidad: ${entry.quantity}';
     }
@@ -278,6 +277,10 @@ class AppTextField extends StatelessWidget {
   final ValueChanged<String>? onChanged;
   final bool readOnly;
   final bool autofocus;
+  final int? maxLines;
+  final int? minLines;
+  final TextInputAction? textInputAction;
+  final FocusNode? focusNode;
 
   const AppTextField({
     super.key,
@@ -292,18 +295,26 @@ class AppTextField extends StatelessWidget {
     this.onChanged,
     this.readOnly = false,
     this.autofocus = false,
+    this.maxLines = 1,
+    this.minLines,
+    this.textInputAction,
+    this.focusNode,
   });
 
   @override
   Widget build(BuildContext context) {
     return TextFormField(
       controller: controller,
+      focusNode: focusNode,
       obscureText: obscureText,
       keyboardType: keyboardType,
       validator: validator,
       onChanged: onChanged,
       readOnly: readOnly,
       autofocus: autofocus,
+      maxLines: maxLines,
+      minLines: minLines,
+      textInputAction: textInputAction,
       decoration: InputDecoration(
         labelText: label,
         hintText: hint,

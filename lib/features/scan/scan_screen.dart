@@ -1,23 +1,24 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+
 import '../../core/constants/app_constants.dart';
-import '../../core/theme/app_colors.dart';
 import '../../core/services/auth_service.dart';
 import '../../core/services/optimistic_update_service.dart';
+import '../../core/theme/app_colors.dart';
 import '../../core/utils/shipping_qr_parser.dart';
 import '../../models/box_id_entry.dart';
 import '../../shared/widgets/common_widgets.dart';
 
-/// Argumentos para la pantalla de resultado de escaneo.
 class ScanResultArguments {
   final String boxId;
-  final QualityStatus status;
+  final MovementType status;
   final DateTime scannedAt;
   final String? partNumber;
   final int? quantity;
   final String? rawCode;
-  final String? productName;
-  final String? lotNumber;
-  final bool skipQualityValidation;
+  final String? detail;
+  final String? notes;
 
   const ScanResultArguments({
     required this.boxId,
@@ -26,14 +27,11 @@ class ScanResultArguments {
     this.partNumber,
     this.quantity,
     this.rawCode,
-    this.productName,
-    this.lotNumber,
-    this.skipQualityValidation = false,
+    this.detail,
+    this.notes,
   });
 }
 
-/// Pantalla de escaneo de QR.
-/// Permite ingresar o escanear el código de embarque manualmente.
 class ScanScreen extends StatefulWidget {
   const ScanScreen({super.key});
 
@@ -42,12 +40,52 @@ class ScanScreen extends StatefulWidget {
 }
 
 class _ScanScreenState extends State<ScanScreen> {
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      appBar: PreferredSize(
+        preferredSize: Size.fromHeight(kToolbarHeight),
+        child: _EntryScanAppBar(),
+      ),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: EdgeInsets.all(20),
+          child: EntryScanForm(),
+        ),
+      ),
+    );
+  }
+}
+
+class EntryScanForm extends StatefulWidget {
+  final bool embedded;
+  final VoidCallback? onRegistered;
+
+  const EntryScanForm({
+    super.key,
+    this.embedded = false,
+    this.onRegistered,
+  });
+
+  @override
+  State<EntryScanForm> createState() => _EntryScanFormState();
+}
+
+class _EntryScanFormState extends State<EntryScanForm> {
   final _manualController = TextEditingController();
+  final _quantityController = TextEditingController();
+  final _qrFocusNode = FocusNode();
+  final _quantityFocusNode = FocusNode();
   bool _isProcessing = false;
+  Timer? _normalizeTimer;
 
   @override
   void dispose() {
+    _normalizeTimer?.cancel();
     _manualController.dispose();
+    _quantityController.dispose();
+    _qrFocusNode.dispose();
+    _quantityFocusNode.dispose();
     super.dispose();
   }
 
@@ -55,7 +93,6 @@ class _ScanScreenState extends State<ScanScreen> {
     _processScan(boxId);
   }
 
-  /// Procesa un escaneo real o simulado.
   Future<void> _processScan(String rawScan) async {
     final parsedQr = ShippingQrParser.parse(rawScan);
     if (parsedQr == null) {
@@ -63,55 +100,67 @@ class _ScanScreenState extends State<ScanScreen> {
       return;
     }
 
+    final quantityValue = int.tryParse(_quantityController.text.trim());
+    if (quantityValue == null || quantityValue <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Captura una cantidad valida antes de registrar.'),
+        ),
+      );
+      return;
+    }
+
     setState(() => _isProcessing = true);
 
     try {
-      if (AuthService.useMockData) {
-        await Future.delayed(const Duration(milliseconds: 300));
-      }
-
-      const status = QualityStatus.released;
       final scannedAt = DateTime.now();
       final partNumber = parsedQr.partNumber;
-      final quantity = parsedQr.quantity;
+      final quantity = quantityValue;
       final rawCode = parsedQr.rawValue;
-
-      // Registrar entrada de forma optimista (instantánea)
       final user = AuthService.currentUser;
-      await OptimisticUpdateService.registerEntryOptimistic(
+      final operatorName = user?.fullName ?? user?.username ?? 'Usuario local';
+
+      final result = await OptimisticUpdateService.registerEntryOptimistic(
         boxId: partNumber,
-        status: status,
-        scannedBy: user?.id ?? 'unknown',
+        scannedBy: operatorName,
         partNumber: partNumber,
         quantity: quantity,
         rawCode: rawCode,
-        lotNumber: 'QTY:$quantity',
-        notes: 'QR: $rawCode | Qty: $quantity',
+        lotNumber: parsedQr.quantity != null ? 'QR-QTY:${parsedQr.quantity}' : null,
+        notes: 'QR: $rawCode | Qty registrada: $quantity',
         deviceId: 'PDA-TC15',
       );
 
-      if (!mounted) return;
-      setState(() => _isProcessing = false);
+      if (!mounted) {
+        return;
+      }
 
-      // Navegar al resultado
+      setState(() => _isProcessing = false);
+      widget.onRegistered?.call();
+
       Navigator.pushNamed(
         context,
         AppConstants.scanResultRoute,
         arguments: ScanResultArguments(
           boxId: partNumber,
-          status: status,
+          status: MovementType.entry,
           scannedAt: scannedAt,
           partNumber: partNumber,
           quantity: quantity,
           rawCode: rawCode,
-          skipQualityValidation: true,
+          detail: result.entry?.detail,
+          notes: result.message,
         ),
       );
+      _manualController.clear();
+      _quantityController.clear();
+      _qrFocusNode.requestFocus();
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       setState(() => _isProcessing = false);
 
-      // Mostrar error pero no bloquear
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Error al procesar: $e'),
@@ -125,98 +174,146 @@ class _ScanScreenState extends State<ScanScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: const Text(
-          'QR no reconocido. Usa un formato "P/No ... Qty ..." o "...-Oven-cantidad-...".',
+          'QR no reconocido. Usa un formato valido que incluya el numero de parte.',
         ),
         backgroundColor: AppColors.darkError,
       ),
     );
   }
 
+  void _handleQrChanged(String value) {
+    _normalizeTimer?.cancel();
+    _normalizeTimer = Timer(const Duration(milliseconds: 180), () {
+      final parsed = ShippingQrParser.parse(value);
+      if (parsed == null) {
+        return;
+      }
+
+      final normalizedPart = parsed.partNumber;
+      if (_manualController.text != normalizedPart) {
+        _manualController.value = TextEditingValue(
+          text: normalizedPart,
+          selection: TextSelection.collapsed(offset: normalizedPart.length),
+        );
+      }
+
+      if (!_quantityFocusNode.hasFocus) {
+        _quantityFocusNode.requestFocus();
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Escanear QR'),
-        leading: Navigator.canPop(context)
-            ? IconButton(
-                icon: const Icon(Icons.arrow_back_rounded),
-                onPressed: () => Navigator.pop(context),
-              )
-            : null,
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          children: [
-            // ── Entrada de Box ID ──
-            Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.qr_code_scanner_rounded,
-                    size: 56,
-                    color: isDark
-                        ? AppColors.darkPrimary.withValues(alpha: 0.6)
-                        : AppColors.lightPrimary.withValues(alpha: 0.6),
-                  ),
-                  const SizedBox(height: 20),
-                  Text(
-                    'Escanear PDA',
-                    style: theme.textTheme.titleMedium,
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Ingresa o escanea el QR de embarque',
-                    style: theme.textTheme.bodyMedium,
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 24),
-                  AppTextField(
-                    label: 'QR',
-                    hint: 'Ej: P/No EBR... Qty 20 o 3608-EBR...-Oven-20-...',
-                    prefixIcon: Icons.inventory_2_outlined,
-                    controller: _manualController,
-                    keyboardType: TextInputType.text,
-                    autofocus: true,
-                  ),
-                  const SizedBox(height: 16),
-                  AppPrimaryButton(
-                    label: 'Procesar QR',
-                    icon: Icons.search_rounded,
-                    onPressed: () {
-                      if (_manualController.text.isNotEmpty) {
-                        _submitScan(_manualController.text);
-                      }
-                    },
-                  ),
-                ],
-              ),
-            ),
-
-            // ── Estado ──
-            if (_isProcessing) ...[
-              LinearProgressIndicator(
-                borderRadius: BorderRadius.circular(4),
-                color: isDark ? AppColors.darkPrimary : AppColors.lightPrimary,
-                backgroundColor: isDark
-                    ? AppColors.darkSurfaceElevated
-                    : AppColors.lightSurfaceSecondary,
-              ),
-              const SizedBox(height: 10),
-              Text(
-                'Procesando QR...',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: isDark ? AppColors.darkInfo : AppColors.lightInfo,
-                ),
-              ),
-            ],
-          ],
+    final content = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (!widget.embedded) ...[
+          Icon(
+            MovementType.entry.icon,
+            size: 56,
+            color: MovementType.entry.color(context).withValues(alpha: 0.8),
+          ),
+          const SizedBox(height: 20),
+          Text(
+            'Registrar entrada',
+            style: theme.textTheme.titleMedium,
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Escanea el QR del material para ingresarlo al inventario.',
+            style: theme.textTheme.bodyMedium,
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 24),
+        ],
+        AppTextField(
+          label: 'QR',
+          hint: 'Ej: P/No EBR... o 3608-EBR...-Oven-...',
+          prefixIcon: Icons.inventory_2_outlined,
+          controller: _manualController,
+          focusNode: _qrFocusNode,
+          keyboardType: TextInputType.multiline,
+          textInputAction: TextInputAction.newline,
+          maxLines: 4,
+          minLines: 1,
+          autofocus: true,
+          onChanged: _handleQrChanged,
         ),
+        const SizedBox(height: 12),
+        AppTextField(
+          label: 'Cantidad',
+          hint: 'Ej: 20',
+          prefixIcon: Icons.numbers_rounded,
+          controller: _quantityController,
+          focusNode: _quantityFocusNode,
+          keyboardType: TextInputType.number,
+        ),
+        const SizedBox(height: 16),
+        AppPrimaryButton(
+          label: 'Registrar entrada',
+          icon: MovementType.entry.icon,
+          onPressed: () {
+            if (_manualController.text.isNotEmpty) {
+              _submitScan(_manualController.text);
+            }
+          },
+        ),
+        if (_isProcessing) ...[
+          const SizedBox(height: 16),
+          LinearProgressIndicator(
+            borderRadius: BorderRadius.circular(4),
+            color: isDark ? AppColors.darkPrimary : AppColors.lightPrimary,
+            backgroundColor: isDark
+                ? AppColors.darkSurfaceElevated
+                : AppColors.lightSurfaceSecondary,
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'Registrando entrada...',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: isDark ? AppColors.darkInfo : AppColors.lightInfo,
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ],
+    );
+
+    if (widget.embedded) {
+      return Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: content,
+        ),
+      );
+    }
+
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 560),
+        child: content,
       ),
+    );
+  }
+}
+
+class _EntryScanAppBar extends StatelessWidget {
+  const _EntryScanAppBar();
+
+  @override
+  Widget build(BuildContext context) {
+    return AppBar(
+      title: const Text('Registrar Entrada'),
+      leading: Navigator.canPop(context)
+          ? IconButton(
+              icon: const Icon(Icons.arrow_back_rounded),
+              onPressed: () => Navigator.pop(context),
+            )
+          : null,
     );
   }
 }

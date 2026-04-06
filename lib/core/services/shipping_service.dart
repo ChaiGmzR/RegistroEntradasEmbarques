@@ -15,67 +15,79 @@ class QualityCheckResult {
   });
 }
 
-/// Resultado de registro de entrada.
-class RegisterEntryResult {
+/// Resultado genérico de registro de movimiento.
+class RegisterMovementResult {
   final bool success;
-  final int? entryId;
+  final int? movementId;
+  final String? folio;
   final String? error;
 
-  const RegisterEntryResult({
+  const RegisterMovementResult({
     required this.success,
-    this.entryId,
+    this.movementId,
+    this.folio,
     this.error,
   });
 }
 
-/// Estadísticas del día.
+/// Estadísticas operativas del día.
 class DailyStats {
   final int total;
-  final int released;
-  final int pending;
-  final int rejected;
-  final int inProcess;
+  final int entries;
+  final int exits;
+  final int returns;
+  final int inventoryItems;
+  final int inventoryQuantity;
 
   const DailyStats({
     required this.total,
-    required this.released,
-    required this.pending,
-    required this.rejected,
-    required this.inProcess,
+    required this.entries,
+    required this.exits,
+    required this.returns,
+    required this.inventoryItems,
+    required this.inventoryQuantity,
   });
 
   factory DailyStats.fromJson(Map<String, dynamic> json) {
     return DailyStats(
-      total: json['total'] ?? 0,
-      released: json['released'] ?? 0,
-      pending: json['pending'] ?? 0,
-      rejected: json['rejected'] ?? 0,
-      inProcess: json['in_process'] ?? 0,
+      total: _parseInt(json['total']),
+      entries: _parseInt(json['entries']),
+      exits: _parseInt(json['exits']),
+      returns: _parseInt(json['returns']),
+      inventoryItems: _parseInt(json['inventory_items']),
+      inventoryQuantity: _parseInt(json['inventory_quantity']),
     );
   }
 
   factory DailyStats.empty() => const DailyStats(
         total: 0,
-        released: 0,
-        pending: 0,
-        rejected: 0,
-        inProcess: 0,
+        entries: 0,
+        exits: 0,
+        returns: 0,
+        inventoryItems: 0,
+        inventoryQuantity: 0,
       );
+
+  static int _parseInt(dynamic value) {
+    if (value is int) {
+      return value;
+    }
+    if (value is num) {
+      return value.toInt();
+    }
+    return int.tryParse(value?.toString() ?? '') ?? 0;
+  }
 }
 
-/// Servicio para operaciones de embarques y validación de calidad.
+/// Servicio para operaciones de embarques e inventario compartido.
 class ShippingService {
-  /// Consulta el estatus de calidad de un Box ID.
-  ///
-  /// Retorna la información del Box ID incluyendo su estatus de calidad
-  /// desde la tabla `quality_validations` de la base de datos.
+  /// Consulta el estatus de calidad legado de un Box ID.
   static Future<QualityCheckResult> checkQualityStatus(String boxId) async {
     final response = await ApiService.get(
       '${ApiConfig.qualityEndpoint}/$boxId',
     );
 
     if (!response.success) {
-      // Si es 404, el Box ID no existe en el sistema
       if (response.statusCode == 404) {
         return const QualityCheckResult(
           success: false,
@@ -98,14 +110,15 @@ class ShippingService {
 
     try {
       final entry = BoxIdEntry(
-        boxId: data['box_id'] ?? boxId,
-        status: _parseQualityStatus(data['quality_status']),
+        boxId: data['box_id']?.toString() ?? boxId,
+        status: MovementType.entry,
         scannedAt: DateTime.now(),
-        partNumber: data['part_number'] ?? data['box_id'] ?? boxId,
-        quantity: _parseQuantity(data['quantity'], data['lot_number']),
-        rawCode: data['raw_code'],
-        productName: data['product_name'],
-        lotNumber: data['lot_number'],
+        partNumber:
+            data['part_number']?.toString() ?? data['box_id']?.toString() ?? boxId,
+        quantity: _parseInt(data['quantity']),
+        rawCode: data['raw_code']?.toString(),
+        productName: data['product_name']?.toString(),
+        lotNumber: data['lot_number']?.toString(),
       );
 
       return QualityCheckResult(success: true, entry: entry);
@@ -117,106 +130,131 @@ class ShippingService {
     }
   }
 
-  /// Registra una entrada de embarque en el sistema.
-  ///
-  /// Crea un registro en la tabla `shipping_entries` con la información
-  /// del escaneo realizado.
-  static Future<RegisterEntryResult> registerEntry({
-    required String boxId,
-    required QualityStatus status,
+  static Future<RegisterMovementResult> registerEntry({
+    required String partNumber,
+    required int quantity,
     required String scannedBy,
-    String? productName,
-    String? lotNumber,
-    String? warehouseZone,
+    String? rawCode,
+    String? location,
     String? notes,
     String? deviceId,
   }) async {
     final response = await ApiService.post(
-      ApiConfig.shippingEntriesEndpoint,
+      ApiConfig.materialEntriesEndpoint,
       body: {
-        'box_id': boxId,
-        'quality_status': _statusToString(status),
-        'scanned_by': scannedBy,
-        'product_name': productName,
-        'lot_number': lotNumber,
-        'warehouse_zone': warehouseZone,
+        'partNumber': partNumber,
+        'quantity': quantity,
+        'location': location,
+        'referenceCode': rawCode,
         'notes': notes,
-        'device_id': deviceId,
-        'scanned_at': DateTime.now().toIso8601String(),
+        'registeredBy': scannedBy,
+        'deviceId': deviceId,
+        'receivedAt': DateTime.now().toIso8601String(),
       },
     );
 
     if (!response.success) {
-      return RegisterEntryResult(
+      return RegisterMovementResult(
         success: false,
         error: response.error ?? 'Error al registrar entrada',
       );
     }
 
-    return RegisterEntryResult(
+    return RegisterMovementResult(
       success: true,
-      entryId: response.data?['id'],
+      movementId: response.data?['id'] as int?,
+      folio: response.data?['folio']?.toString(),
     );
   }
 
-  /// Obtiene el historial de escaneos con filtros opcionales.
+  static Future<RegisterMovementResult> registerExit({
+    required String partNumber,
+    required int quantity,
+    required String scannedBy,
+    String? rawCode,
+    String? destinationArea,
+    String? reason,
+    String? remarks,
+  }) async {
+    final response = await ApiService.post(
+      ApiConfig.materialExitsEndpoint,
+      body: {
+        'partNumber': partNumber,
+        'quantity': quantity,
+        'destinationArea': destinationArea,
+        'reason': reason,
+        'remarks': remarks,
+        'requestedBy': scannedBy,
+        'registeredBy': scannedBy,
+        'referenceCode': rawCode,
+        'exitedAt': DateTime.now().toIso8601String(),
+      },
+    );
+
+    if (!response.success) {
+      return RegisterMovementResult(
+        success: false,
+        error: response.error ?? 'Error al registrar salida',
+      );
+    }
+
+    return RegisterMovementResult(
+      success: true,
+      movementId: response.data?['id'] as int?,
+      folio: response.data?['folio']?.toString(),
+    );
+  }
+
+  /// Obtiene el historial visible para la app móvil: entradas y retornos.
   static Future<List<BoxIdEntry>> getHistory({
-    QualityStatus? statusFilter,
+    MovementType? statusFilter,
     String? searchQuery,
-    DateTime? fromDate,
-    DateTime? toDate,
     int limit = 50,
-    int offset = 0,
   }) async {
     final queryParams = <String, String>{
       'limit': limit.toString(),
-      'offset': offset.toString(),
+      if (searchQuery != null && searchQuery.isNotEmpty) 'q': searchQuery,
     };
 
-    if (statusFilter != null) {
-      queryParams['status'] = _statusToString(statusFilter);
-    }
-    if (searchQuery != null && searchQuery.isNotEmpty) {
-      queryParams['search'] = searchQuery;
-    }
-    if (fromDate != null) {
-      queryParams['from_date'] = fromDate.toIso8601String();
-    }
-    if (toDate != null) {
-      queryParams['to_date'] = toDate.toIso8601String();
-    }
+    final responses = await Future.wait([
+      ApiService.get(
+        ApiConfig.materialEntriesEndpoint,
+        queryParams: queryParams,
+      ),
+      ApiService.get(
+        ApiConfig.materialReturnsEndpoint,
+        queryParams: queryParams,
+      ),
+    ]);
 
-    final response = await ApiService.get(
-      ApiConfig.shippingEntriesEndpoint,
-      queryParams: queryParams,
-    );
+    final history = <BoxIdEntry>[
+      ..._mapMovementList(
+        responses[0].data?['entries'] as List<dynamic>?,
+        MovementType.entry,
+      ),
+      ..._mapMovementList(
+        responses[1].data?['returns'] as List<dynamic>?,
+        MovementType.materialReturn,
+      ),
+    ];
 
-    if (!response.success || response.data == null) {
-      return [];
+    history.sort((a, b) => b.scannedAt.compareTo(a.scannedAt));
+
+    final filtered = statusFilter == null
+        ? history
+        : history.where((entry) => entry.status == statusFilter).toList();
+
+    if (filtered.length <= limit) {
+      return filtered;
     }
-
-    final entriesJson = response.data!['entries'] as List<dynamic>? ?? [];
-
-    return entriesJson.map((json) {
-      return BoxIdEntry(
-        boxId: json['box_id'] ?? '',
-        status: _parseQualityStatus(json['quality_status']),
-        scannedAt:
-            DateTime.tryParse(json['scanned_at'] ?? '') ?? DateTime.now(),
-        partNumber: json['part_number'] ?? json['box_id'],
-        quantity: _parseQuantity(json['quantity'], json['lot_number']),
-        rawCode: json['raw_code'],
-        productName: json['product_name'],
-        lotNumber: json['lot_number'],
-      );
-    }).toList();
+    return filtered.take(limit).toList();
   }
 
-  /// Obtiene las estadísticas del día actual.
+  /// Obtiene las estadísticas operativas del día actual.
   static Future<DailyStats> getTodayStats() async {
     final today = DateTime.now();
     final response = await ApiService.get(
-      '${ApiConfig.shippingStatsEndpoint}/today',
+      '${ApiConfig.materialStatsEndpoint}/today',
       queryParams: {
         'date':
             '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}',
@@ -230,52 +268,97 @@ class ShippingService {
     return DailyStats.fromJson(response.data!);
   }
 
-  /// Convierte string de BD a enum QualityStatus.
-  static QualityStatus _parseQualityStatus(String? status) {
-    switch (status?.toLowerCase()) {
-      case 'released':
-        return QualityStatus.released;
-      case 'pending':
-        return QualityStatus.pending;
-      case 'rejected':
-        return QualityStatus.rejected;
-      case 'in_process':
-        return QualityStatus.inProcess;
-      default:
-        return QualityStatus.pending;
+  static List<BoxIdEntry> _mapMovementList(
+    List<dynamic>? rows,
+    MovementType type,
+  ) {
+    if (rows == null) {
+      return const [];
+    }
+
+    return rows.whereType<Map<String, dynamic>>().map((json) {
+      final partNumber = json['part_number']?.toString() ?? '';
+      final quantity = _parseInt(
+        json['quantity'] ?? json['return_quantity'],
+      );
+      final scannedAt =
+          DateTime.tryParse(json['movement_at']?.toString() ?? '') ??
+              DateTime.now();
+
+      return BoxIdEntry(
+        boxId: _pickString(
+          json,
+          ['entry_folio', 'exit_folio', 'return_folio', 'part_number'],
+        ),
+        status: type,
+        scannedAt: scannedAt,
+        partNumber: partNumber,
+        quantity: quantity == 0 ? null : quantity,
+        rawCode: json['reference_code']?.toString(),
+        productName: json['description']?.toString(),
+        lotNumber: json['batch_no']?.toString(),
+        folio: _pickString(
+          json,
+          ['entry_folio', 'exit_folio', 'return_folio'],
+        ),
+        location: _pickString(
+          json,
+          ['location_code', 'zone_code'],
+        ),
+        detail: _buildDetail(type, json),
+        notes: _pickString(json, ['notes', 'remarks', 'reason']),
+      );
+    }).toList();
+  }
+
+  static String? _buildDetail(MovementType type, Map<String, dynamic> json) {
+    final quantity = _parseInt(json['quantity'] ?? json['return_quantity']);
+    switch (type) {
+      case MovementType.entry:
+        final location = _pickString(json, ['location_code', 'zone_code']);
+        if (location.isNotEmpty) {
+          return 'Cant: $quantity • Ubicación: $location';
+        }
+        return 'Cant: $quantity';
+      case MovementType.exit:
+        final destination = _pickString(json, ['destination_area', 'reason']);
+        if (destination.isNotEmpty) {
+          return 'Cant: $quantity • Destino: $destination';
+        }
+        return 'Cant: $quantity';
+      case MovementType.materialReturn:
+        final reason = _pickString(json, ['reason', 'remarks']);
+        if (reason.isNotEmpty) {
+          return 'Cant: $quantity • $reason';
+        }
+        return 'Cant: $quantity';
+      case MovementType.adjustment:
+        return 'Cant: $quantity';
     }
   }
 
-  /// Convierte enum QualityStatus a string para BD.
-  static String _statusToString(QualityStatus status) {
-    switch (status) {
-      case QualityStatus.released:
-        return 'released';
-      case QualityStatus.pending:
-        return 'pending';
-      case QualityStatus.rejected:
-        return 'rejected';
-      case QualityStatus.inProcess:
-        return 'in_process';
-    }
-  }
-
-  static int? _parseQuantity(dynamic quantity, dynamic lotNumber) {
-    if (quantity is int) {
-      return quantity;
-    }
-
-    if (quantity is String) {
-      final parsedQuantity = int.tryParse(quantity);
-      if (parsedQuantity != null) {
-        return parsedQuantity;
+  static String _pickString(
+    Map<String, dynamic> json,
+    List<String> keys,
+  ) {
+    for (final key in keys) {
+      final value = json[key]?.toString().trim();
+      if (value != null && value.isNotEmpty) {
+        return value;
       }
     }
+    return '';
+  }
 
-    if (lotNumber is String && lotNumber.startsWith('QTY:')) {
-      return int.tryParse(lotNumber.substring(4));
+  static int _parseInt(dynamic value) {
+    if (value is int) {
+      return value;
     }
 
-    return null;
+    if (value is num) {
+      return value.toInt();
+    }
+
+    return int.tryParse(value?.toString() ?? '') ?? 0;
   }
 }

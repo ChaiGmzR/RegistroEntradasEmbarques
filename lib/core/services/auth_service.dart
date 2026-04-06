@@ -371,15 +371,21 @@ abstract class AuthService {
         [
           viewWarehousingPermission,
           writeWarehousingPermission,
+          viewInventoryPermission,
+          viewMaterialReturnPermission,
         ],
       );
 
   static bool get canWriteEntries => canWriteWarehousing;
 
+  static bool get canWriteExits => false;
+
   static bool get canViewHistory => hasAnyPermission(
         [
           viewWarehousingPermission,
           writeWarehousingPermission,
+          viewMaterialReturnPermission,
+          writeMaterialReturnPermission,
         ],
       );
 

@@ -1,16 +1,16 @@
 import 'package:flutter/material.dart';
+
 import '../../core/constants/app_constants.dart';
-import '../../core/theme/app_colors.dart';
 import '../../core/services/auth_service.dart';
 import '../../core/services/cache_service.dart';
 import '../../core/services/shipping_service.dart';
+import '../../core/theme/app_colors.dart';
 import '../../models/box_id_entry.dart';
 import '../../models/mock_data.dart';
 import '../../shared/widgets/common_widgets.dart';
 import '../../shared/widgets/shimmer_loading.dart';
 import '../scan/scan_screen.dart';
 
-/// Pantalla de historial de escaneos (Mockup).
 class HistoryScreen extends StatefulWidget {
   const HistoryScreen({super.key});
 
@@ -19,7 +19,7 @@ class HistoryScreen extends StatefulWidget {
 }
 
 class _HistoryScreenState extends State<HistoryScreen> {
-  QualityStatus? _selectedFilter;
+  MovementType? _selectedFilter;
   final _searchController = TextEditingController();
 
   List<BoxIdEntry> _entries = [];
@@ -38,8 +38,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 
   Future<void> _loadHistory() async {
-    // 1. Cache primero (instantáneo)
-    final cached = CacheService.getHistory();
+    final cached = _visibleEntries(CacheService.getHistory());
     if (cached != null) {
       setState(() {
         _entries = cached;
@@ -47,32 +46,35 @@ class _HistoryScreenState extends State<HistoryScreen> {
       });
     }
 
-    // 2. API en background
     if (AuthService.useMockData) {
-      // Modo mock
       await Future.delayed(const Duration(milliseconds: 200));
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       setState(() {
-        _entries = MockData.recentScans;
+        _entries = _visibleEntries(MockData.recentScans) ?? [];
         _isLoading = false;
       });
-      CacheService.setHistory(MockData.recentScans);
-    } else {
-      // Modo real
-      try {
-        final entries = await ShippingService.getHistory();
-        if (!mounted) return;
-        setState(() {
-          _entries = entries;
-          _isLoading = false;
-        });
-        CacheService.setHistory(entries);
-      } catch (e) {
-        // Si falla y no teníamos cache, marcar como no cargando
-        if (!mounted) return;
-        if (_isLoading) {
-          setState(() => _isLoading = false);
-        }
+      CacheService.setHistory(_entries);
+      return;
+    }
+
+    try {
+      final entries = await ShippingService.getHistory();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _entries = _visibleEntries(entries) ?? [];
+        _isLoading = false;
+      });
+      CacheService.setHistory(_entries);
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      if (_isLoading) {
+        setState(() => _isLoading = false);
       }
     }
   }
@@ -87,12 +89,22 @@ class _HistoryScreenState extends State<HistoryScreen> {
       entries = entries
           .where((e) =>
               e.boxId.toLowerCase().contains(query) ||
+              (e.folio?.toLowerCase().contains(query) ?? false) ||
               (e.partNumber?.toLowerCase().contains(query) ?? false) ||
-              (e.rawCode?.toLowerCase().contains(query) ?? false) ||
-              (e.productName?.toLowerCase().contains(query) ?? false))
+              (e.detail?.toLowerCase().contains(query) ?? false))
           .toList();
     }
     return entries;
+  }
+
+  List<BoxIdEntry>? _visibleEntries(List<BoxIdEntry>? entries) {
+    return entries
+        ?.where(
+          (entry) =>
+              entry.status == MovementType.entry ||
+              entry.status == MovementType.materialReturn,
+        )
+        .toList();
   }
 
   @override
@@ -103,7 +115,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Historial de Escaneos'),
+        title: const Text('Historial de Entradas'),
         leading: Navigator.canPop(context)
             ? IconButton(
                 icon: const Icon(Icons.arrow_back_rounded),
@@ -113,12 +125,11 @@ class _HistoryScreenState extends State<HistoryScreen> {
       ),
       body: Column(
         children: [
-          // ── Buscador ──
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
             child: AppTextField(
               label: 'Buscar',
-              hint: 'No. de parte, QR o detalle',
+              hint: 'No. de parte, folio o detalle',
               prefixIcon: Icons.search_rounded,
               controller: _searchController,
               onChanged: (_) => setState(() {}),
@@ -133,8 +144,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   : null,
             ),
           ),
-
-          // ── Filtros ──
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -147,43 +156,25 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 ),
                 const SizedBox(width: 8),
                 _FilterChip(
-                  label: 'Liberados',
+                  label: 'Entradas',
                   color:
                       isDark ? AppColors.darkSuccess : AppColors.lightSuccess,
-                  isSelected: _selectedFilter == QualityStatus.released,
+                  isSelected: _selectedFilter == MovementType.entry,
                   onTap: () =>
-                      setState(() => _selectedFilter = QualityStatus.released),
+                      setState(() => _selectedFilter = MovementType.entry),
                 ),
                 const SizedBox(width: 8),
                 _FilterChip(
-                  label: 'Pendientes',
-                  color:
-                      isDark ? AppColors.darkWarning : AppColors.lightWarning,
-                  isSelected: _selectedFilter == QualityStatus.pending,
-                  onTap: () =>
-                      setState(() => _selectedFilter = QualityStatus.pending),
-                ),
-                const SizedBox(width: 8),
-                _FilterChip(
-                  label: 'Rechazados',
+                  label: 'Retornos',
                   color: isDark ? AppColors.darkError : AppColors.lightError,
-                  isSelected: _selectedFilter == QualityStatus.rejected,
-                  onTap: () =>
-                      setState(() => _selectedFilter = QualityStatus.rejected),
-                ),
-                const SizedBox(width: 8),
-                _FilterChip(
-                  label: 'En Proceso',
-                  color: isDark ? AppColors.darkInfo : AppColors.lightInfo,
-                  isSelected: _selectedFilter == QualityStatus.inProcess,
-                  onTap: () =>
-                      setState(() => _selectedFilter = QualityStatus.inProcess),
+                  isSelected: _selectedFilter == MovementType.materialReturn,
+                  onTap: () => setState(
+                    () => _selectedFilter = MovementType.materialReturn,
+                  ),
                 ),
               ],
             ),
           ),
-
-          // ── Contador ──
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: Row(
@@ -208,8 +199,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
               ],
             ),
           ),
-
-          // ── Lista ──
           Expanded(
             child: _isLoading
                 ? const ScanListShimmer()
@@ -236,11 +225,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
                                   partNumber: entry.partNumber,
                                   quantity: entry.quantity,
                                   rawCode: entry.rawCode,
-                                  productName: entry.productName,
-                                  lotNumber: entry.lotNumber,
-                                  skipQualityValidation:
-                                      entry.quantity != null ||
-                                          entry.rawCode != null,
+                                  detail: entry.detail,
+                                  notes: entry.notes,
                                 ),
                               ),
                             );
@@ -272,7 +258,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
           ),
           const SizedBox(height: 4),
           Text(
-            'No se encontraron escaneos con este filtro.',
+            'No se encontraron entradas con este filtro.',
             style: theme.textTheme.bodyMedium,
             textAlign: TextAlign.center,
           ),

@@ -40,6 +40,18 @@ abstract class ApiConfig {
     }
   }
 
+  static Uri get baseUri => Uri.parse(baseUrl);
+
+  static String get connectivityHost => baseUri.host;
+
+  static String get healthCheckUrl => baseUri
+      .replace(
+        path: '/api/health',
+        queryParameters: null,
+        fragment: null,
+      )
+      .toString();
+
   /// Timeout para requests HTTP (en segundos)
   static const int timeoutSeconds = 30;
 
@@ -58,4 +70,15 @@ abstract class ApiConfig {
   /// Endpoints de embarques
   static const String shippingEntriesEndpoint = '/entries';
   static const String shippingStatsEndpoint = '/stats';
+
+  /// Endpoints compartidos de inventario/embarques.
+  static const String materialBaseEndpoint = '/material';
+  static const String materialEntriesEndpoint = '$materialBaseEndpoint/entries';
+  static const String materialExitsEndpoint = '$materialBaseEndpoint/exits';
+  static const String materialReturnsEndpoint = '$materialBaseEndpoint/returns';
+  static const String materialInventoryEndpoint =
+      '$materialBaseEndpoint/inventory';
+  static const String materialStatsEndpoint = '$materialBaseEndpoint/stats';
+  static const String materialCatalogImportEndpoint =
+      '$materialBaseEndpoint/catalog/import';
 }

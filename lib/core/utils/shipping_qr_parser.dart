@@ -1,19 +1,19 @@
 class ShippingQrData {
   final String rawValue;
   final String partNumber;
-  final int quantity;
+  final int? quantity;
 
   const ShippingQrData({
     required this.rawValue,
     required this.partNumber,
-    required this.quantity,
+    this.quantity,
   });
 }
 
 /// Extrae número de parte y cantidad desde los formatos de QR soportados.
 abstract final class ShippingQrParser {
   static final RegExp _partQtyFormat = RegExp(
-    r'P\/No\s+([A-Z0-9]+)\b.*?\bQty\s+(\d+)\b',
+    r'P\s*[\/-]?\s*No\s*([A-Z0-9]+?)(?=\s*(?:Line|Qty|Description|Day|Model|Apariencia|Funcionamiento|Contenedor|RoHS|$)).*?\bQty\s*[:\-]?\s*(\d+)\b',
     caseSensitive: false,
     dotAll: true,
   );
@@ -23,8 +23,24 @@ abstract final class ShippingQrParser {
     caseSensitive: false,
   );
 
+  static final RegExp _partOnlyFormat = RegExp(
+    r'P\s*[\/-]?\s*No\s*([A-Z0-9]+?)(?=\s*(?:Line|Qty|Description|Day|Model|Apariencia|Funcionamiento|Contenedor|RoHS|$))',
+    caseSensitive: false,
+    dotAll: true,
+  );
+
+  static final RegExp _ovenPartOnlyFormat = RegExp(
+    r'^[^-]+-([A-Z0-9]+)-Oven(?:-|$)',
+    caseSensitive: false,
+  );
+
+  static final RegExp _directPartNumberFormat = RegExp(
+    r'\b(EBR[A-Z0-9]+)\b',
+    caseSensitive: false,
+  );
+
   static ShippingQrData? parse(String rawValue) {
-    final normalizedValue = rawValue.trim();
+    final normalizedValue = _normalize(rawValue);
     if (normalizedValue.isEmpty) {
       return null;
     }
@@ -47,6 +63,38 @@ abstract final class ShippingQrParser {
       );
     }
 
+    final partOnlyMatch = _partOnlyFormat.firstMatch(normalizedValue);
+    if (partOnlyMatch != null) {
+      return ShippingQrData(
+        rawValue: normalizedValue,
+        partNumber: partOnlyMatch.group(1)!.toUpperCase(),
+      );
+    }
+
+    final ovenPartOnlyMatch = _ovenPartOnlyFormat.firstMatch(normalizedValue);
+    if (ovenPartOnlyMatch != null) {
+      return ShippingQrData(
+        rawValue: normalizedValue,
+        partNumber: ovenPartOnlyMatch.group(1)!.toUpperCase(),
+      );
+    }
+
+    final directPartNumberMatch =
+        _directPartNumberFormat.firstMatch(normalizedValue);
+    if (directPartNumberMatch != null) {
+      return ShippingQrData(
+        rawValue: normalizedValue,
+        partNumber: directPartNumberMatch.group(1)!.toUpperCase(),
+      );
+    }
+
     return null;
+  }
+
+  static String _normalize(String rawValue) {
+    return rawValue
+        .replaceAll(RegExp(r'[\u0000-\u001F\u007F]+'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
   }
 }

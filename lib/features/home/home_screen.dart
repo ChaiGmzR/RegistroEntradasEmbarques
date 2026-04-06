@@ -70,20 +70,6 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
 
-    if (AuthService.canWriteEntries) {
-      tabs.add(
-        const _HomeTabDefinition(
-          id: 'scan',
-          screen: ScanScreen(),
-          destination: NavigationDestination(
-            icon: Icon(Icons.qr_code_scanner_outlined),
-            selectedIcon: Icon(Icons.qr_code_scanner_rounded),
-            label: 'Escanear',
-          ),
-        ),
-      );
-    }
-
     if (AuthService.canViewHistory) {
       tabs.add(
         const _HomeTabDefinition(
@@ -158,7 +144,6 @@ class _DashboardTab extends StatefulWidget {
 
 class _DashboardTabState extends State<_DashboardTab> {
   bool _isLoading = true;
-  Map<String, int> _stats = {};
   List<BoxIdEntry> _recentScans = [];
   int _pendingSync = 0;
 
@@ -172,15 +157,11 @@ class _DashboardTabState extends State<_DashboardTab> {
 
   Future<void> _loadData() async {
     // 1. Cargar desde caché primero (instantáneo)
-    final cachedStats =
-        CacheService.get<Map<String, int>>('stats:today', 'stats');
-    final cachedHistory =
-        CacheService.get<List<BoxIdEntry>>('history:recent', 'history');
+    final cachedHistory = _filterVisibleHistory(CacheService.getHistory());
 
-    if (cachedStats != null || cachedHistory != null) {
+    if (cachedHistory.isNotEmpty) {
       setState(() {
-        _stats = cachedStats ?? MockData.todayStats;
-        _recentScans = cachedHistory ?? [];
+        _recentScans = cachedHistory;
         _isLoading = false;
       });
     }
@@ -199,48 +180,48 @@ class _DashboardTabState extends State<_DashboardTab> {
     if (AuthService.useMockData) {
       await Future.delayed(const Duration(milliseconds: 500));
       setState(() {
-        _stats = MockData.todayStats;
-        _recentScans = MockData.recentScans;
+        _recentScans = _filterVisibleHistory(MockData.recentScans);
         _isLoading = false;
       });
-      // Guardar en caché
-      CacheService.set('stats:today', _stats);
-      CacheService.set('history:recent', _recentScans);
+      CacheService.setHistory(_recentScans);
       return;
     }
 
     // Llamar API real
     try {
-      final statsResult = await ShippingService.getTodayStats();
       final historyResult = await ShippingService.getHistory(limit: 10);
 
       if (mounted) {
         setState(() {
-          _stats = {
-            'total': statsResult.total,
-            'released': statsResult.released,
-            'pending': statsResult.pending,
-            'rejected': statsResult.rejected,
-            'inProcess': statsResult.inProcess,
-          };
-          _recentScans = historyResult;
+          _recentScans = _filterVisibleHistory(historyResult);
           _isLoading = false;
         });
 
-        // Actualizar caché
-        CacheService.set('stats:today', _stats);
-        CacheService.set('history:recent', _recentScans);
+        CacheService.setHistory(_recentScans);
       }
     } catch (e) {
       // Si falla, mantener datos de caché/mock
       if (mounted && _isLoading) {
         setState(() {
-          _stats = MockData.todayStats;
-          _recentScans = MockData.recentScans;
+          _recentScans = _filterVisibleHistory(MockData.recentScans);
           _isLoading = false;
         });
       }
     }
+  }
+
+  List<BoxIdEntry> _filterVisibleHistory(List<BoxIdEntry>? entries) {
+    if (entries == null) {
+      return const [];
+    }
+
+    return entries
+        .where(
+          (entry) =>
+              entry.status == MovementType.entry ||
+              entry.status == MovementType.materialReturn,
+        )
+        .toList();
   }
 
   Future<void> _onRefresh() async {
@@ -254,10 +235,17 @@ class _DashboardTabState extends State<_DashboardTab> {
     });
   }
 
+  void _refreshLocalHistoryFromCache() {
+    setState(() {
+      _recentScans = _filterVisibleHistory(CacheService.getHistory());
+      _pendingSync = OptimisticUpdateService.pendingOperations.length;
+    });
+  }
+
   String _getGreeting() {
     final user = AuthService.currentUser;
     final name = user?.fullName ?? 'Operador';
-    return 'Hola, $name 👋';
+    return 'Hola, $name';
   }
 
   String _getDateShift() {
@@ -277,8 +265,10 @@ class _DashboardTabState extends State<_DashboardTab> {
       'Dic'
     ];
     final user = AuthService.currentUser;
-    final shift = user?.shift ?? 'Turno A';
-    return '${now.day} ${months[now.month - 1]}, ${now.year} • $shift';
+    final department = user?.department.isNotEmpty == true
+        ? user!.department
+        : 'Registro móvil';
+    return '${now.day} ${months[now.month - 1]}, ${now.year} • $department';
   }
 
   @override
@@ -334,64 +324,21 @@ class _DashboardTabState extends State<_DashboardTab> {
               _getDateShift(),
               style: theme.textTheme.bodyMedium,
             ),
-            const SizedBox(height: 20),
-
-            // ── Resumen rápido ──
-            const SectionHeader(title: 'Resumen del día'),
-            const SizedBox(height: 10),
-
-            // Mostrar shimmer mientras carga, o datos reales
-            if (_isLoading)
-              const StatsGridShimmer()
-            else
-              GridView.count(
-                crossAxisCount: 2,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                mainAxisSpacing: 10,
-                crossAxisSpacing: 10,
-                childAspectRatio: 1.4,
-                children: [
-                  StatCard(
-                    label: 'Total Escaneados',
-                    value: '${_stats['total'] ?? 0}',
-                    icon: Icons.qr_code_scanner_rounded,
-                    color:
-                        isDark ? AppColors.darkPrimary : AppColors.lightPrimary,
-                  ),
-                  StatCard(
-                    label: 'Liberados',
-                    value: '${_stats['released'] ?? 0}',
-                    icon: Icons.check_circle_rounded,
-                    color:
-                        isDark ? AppColors.darkSuccess : AppColors.lightSuccess,
-                  ),
-                  StatCard(
-                    label: 'Pendientes',
-                    value: '${_stats['pending'] ?? 0}',
-                    icon: Icons.warning_amber_rounded,
-                    color:
-                        isDark ? AppColors.darkWarning : AppColors.lightWarning,
-                  ),
-                  StatCard(
-                    label: 'Rechazados',
-                    value: '${_stats['rejected'] ?? 0}',
-                    icon: Icons.cancel_rounded,
-                    color: isDark ? AppColors.darkError : AppColors.lightError,
-                  ),
-                ],
-              ),
             const SizedBox(height: 24),
 
-            // ── Acción principal ──
             if (canWriteEntries) ...[
-              _QuickScanCard(isDark: isDark),
+              const SectionHeader(title: 'Registrar entrada'),
+              const SizedBox(height: 10),
+              EntryScanForm(
+                embedded: true,
+                onRegistered: _refreshLocalHistoryFromCache,
+              ),
               const SizedBox(height: 24),
             ],
 
             if (canViewHistory) ...[
               SectionHeader(
-                title: 'Últimos escaneos',
+                title: 'Últimos movimientos',
                 actionLabel: 'Ver todo',
                 onAction: () =>
                     Navigator.pushNamed(context, AppConstants.historyRoute),
@@ -417,10 +364,8 @@ class _DashboardTabState extends State<_DashboardTab> {
                               partNumber: entry.partNumber,
                               quantity: entry.quantity,
                               rawCode: entry.rawCode,
-                              productName: entry.productName,
-                              lotNumber: entry.lotNumber,
-                              skipQualityValidation: entry.quantity != null ||
-                                  entry.rawCode != null,
+                              detail: entry.detail,
+                              notes: entry.notes,
                             ),
                           ),
                         ),
@@ -466,7 +411,7 @@ class _NoPermissionsTab extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               Text(
-                'Tu usuario no tiene permisos asignados para los módulos móviles disponibles en Registro Embarques.',
+                'Tu usuario no tiene permisos para registrar o consultar movimientos en la app móvil.',
                 style: theme.textTheme.bodyMedium,
                 textAlign: TextAlign.center,
               ),
@@ -554,7 +499,7 @@ class _EmptyStateCard extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             Text(
-              'Sin escaneos hoy',
+              'Sin movimientos hoy',
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: 4),
@@ -563,79 +508,6 @@ class _EmptyStateCard extends StatelessWidget {
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Tarjeta de acción rápida para iniciar escaneo.
-class _QuickScanCard extends StatelessWidget {
-  final bool isDark;
-
-  const _QuickScanCard({required this.isDark});
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      color: isDark ? AppColors.darkPrimary : AppColors.lightPrimary,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide.none,
-      ),
-      child: InkWell(
-        onTap: () => Navigator.pushNamed(context, AppConstants.scanRoute),
-        borderRadius: BorderRadius.circular(16),
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Icon(
-                  Icons.qr_code_scanner_rounded,
-                  color: Colors.white,
-                  size: 28,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Escanear QR',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                          ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Usa el scanner del PDA para capturar el QR de embarque',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: Colors.white.withValues(alpha: 0.85),
-                          ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 12),
-              Icon(
-                Icons.arrow_forward_ios_rounded,
-                color: Colors.white.withValues(alpha: 0.7),
-                size: 18,
-              ),
-            ],
-          ),
         ),
       ),
     );
