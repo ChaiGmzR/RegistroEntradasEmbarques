@@ -26,6 +26,28 @@ void main() {
       expect(parsed.rawValue, rawValue);
     });
 
+    test('parsea formato multilinea Resultado: P/No ... Qty ...', () {
+      const rawValue =
+          'Resultado: P/No\nACQ30500849\nLine\nR2\nQty\n80\nDescriptionÑ\nInner Display\nDilan\nDay\nModel\nVF1 B\nApariencia\nOK\nFuncionamiento\nOK\n80.7\n80.87\nContenedor\nOK\nRoHS\nOK';
+
+      final parsed = ShippingQrParser.parse(rawValue);
+
+      expect(parsed, isNotNull);
+      expect(parsed!.partNumber, 'ACQ30500849');
+      expect(parsed.quantity, 80);
+    });
+
+    test('acepta numero de parte directo cuando el campo ya fue normalizado', () {
+      const rawValue = 'ACQ30500849';
+
+      final parsed = ShippingQrParser.parse(rawValue);
+
+      expect(parsed, isNotNull);
+      expect(parsed!.partNumber, 'ACQ30500849');
+      expect(parsed.quantity, isNull);
+      expect(parsed.rawValue, rawValue);
+    });
+
     test('retorna null cuando el QR no coincide con un formato soportado', () {
       final parsed = ShippingQrParser.parse('codigo-invalido');
 

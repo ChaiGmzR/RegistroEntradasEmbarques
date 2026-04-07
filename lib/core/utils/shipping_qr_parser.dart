@@ -39,6 +39,11 @@ abstract final class ShippingQrParser {
     caseSensitive: false,
   );
 
+  static final RegExp _fullDirectPartNumberFormat = RegExp(
+    r'^(?=.*\d)[A-Z]{2,}[A-Z0-9-]{4,}$',
+    caseSensitive: false,
+  );
+
   static ShippingQrData? parse(String rawValue) {
     final normalizedValue = _normalize(rawValue);
     if (normalizedValue.isEmpty) {
@@ -85,6 +90,15 @@ abstract final class ShippingQrParser {
       return ShippingQrData(
         rawValue: normalizedValue,
         partNumber: directPartNumberMatch.group(1)!.toUpperCase(),
+      );
+    }
+
+    final fullDirectPartNumberMatch =
+        _fullDirectPartNumberFormat.firstMatch(normalizedValue);
+    if (fullDirectPartNumberMatch != null) {
+      return ShippingQrData(
+        rawValue: normalizedValue,
+        partNumber: fullDirectPartNumberMatch.group(0)!.toUpperCase(),
       );
     }
 

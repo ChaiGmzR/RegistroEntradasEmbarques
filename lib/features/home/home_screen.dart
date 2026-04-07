@@ -299,27 +299,10 @@ class _DashboardTabState extends State<_DashboardTab> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.warehouse_rounded,
-              size: 22,
-              color: isDark ? AppColors.darkPrimary : AppColors.lightPrimary,
-            ),
-            const SizedBox(width: 8),
-            const Text('Registro Embarques'),
-          ],
-        ),
-        actions: [
-          // Indicador de conexión compacto
-          const ConnectionIndicator(compact: true),
-          const SizedBox(width: 8),
-          IconButton(
-            icon: const Icon(Icons.notifications_outlined),
-            onPressed: () {},
-          ),
-        ],
+        toolbarHeight: 72,
+        automaticallyImplyLeading: false,
+        titleSpacing: 0,
+        title: const _EntriesHeaderBar(),
       ),
       body: RefreshIndicator(
         onRefresh: _onRefresh,
@@ -410,7 +393,10 @@ class _NoPermissionsTab extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Registro Embarques'),
+        toolbarHeight: 72,
+        automaticallyImplyLeading: false,
+        titleSpacing: 0,
+        title: const _EntriesHeaderBar(),
       ),
       body: Center(
         child: Padding(
@@ -439,6 +425,103 @@ class _NoPermissionsTab extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _EntriesHeaderBar extends StatelessWidget {
+  const _EntriesHeaderBar();
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 72,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        child: Stack(
+          children: [
+            const Align(
+              alignment: Alignment.centerLeft,
+              child: _EntriesHeaderLogo(),
+            ),
+            const Positioned.fill(
+              child: Center(
+                child: Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 72),
+                  child: _EntriesHeaderBrand(),
+                ),
+              ),
+            ),
+            Align(
+              alignment: Alignment.centerRight,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const ConnectionIndicator(compact: true),
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () {},
+                    icon: const Icon(Icons.notifications_outlined),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _EntriesHeaderLogo extends StatelessWidget {
+  const _EntriesHeaderLogo();
+
+  @override
+  Widget build(BuildContext context) {
+    return Image.asset(
+      'LOGO.png',
+      height: 28,
+      fit: BoxFit.contain,
+    );
+  }
+}
+
+class _EntriesHeaderBrand extends StatelessWidget {
+  const _EntriesHeaderBrand();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Text(
+          'Entradas',
+          maxLines: 1,
+          overflow: TextOverflow.visible,
+          style: theme.textTheme.headlineMedium?.copyWith(
+            fontSize: 30,
+            fontWeight: FontWeight.w800,
+            height: 0.9,
+            letterSpacing: 0,
+          ),
+        ),
+        const SizedBox(height: 1),
+        Text(
+          'Almacén de Embarques',
+          maxLines: 1,
+          overflow: TextOverflow.visible,
+          style: theme.textTheme.bodySmall?.copyWith(
+            fontSize: 11,
+            fontWeight: FontWeight.w500,
+            color: AppColors.darkTextSecondary.withValues(alpha: 0.92),
+            height: 0.95,
+          ),
+          textAlign: TextAlign.center,
+        ),
+      ],
     );
   }
 }
