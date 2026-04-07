@@ -1,8 +1,8 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-import '../../core/constants/app_constants.dart';
 import '../../core/services/auth_service.dart';
 import '../../core/services/optimistic_update_service.dart';
 import '../../core/theme/app_colors.dart';
@@ -19,6 +19,8 @@ class ScanResultArguments {
   final String? rawCode;
   final String? detail;
   final String? notes;
+  final bool autoClose;
+  final bool compactDetailView;
 
   const ScanResultArguments({
     required this.boxId,
@@ -29,6 +31,8 @@ class ScanResultArguments {
     this.rawCode,
     this.detail,
     this.notes,
+    this.autoClose = false,
+    this.compactDetailView = false,
   });
 }
 
@@ -113,7 +117,6 @@ class _EntryScanFormState extends State<EntryScanForm> {
     setState(() => _isProcessing = true);
 
     try {
-      final scannedAt = DateTime.now();
       final partNumber = parsedQr.partNumber;
       final quantity = quantityValue;
       final rawCode = parsedQr.rawValue;
@@ -136,24 +139,29 @@ class _EntryScanFormState extends State<EntryScanForm> {
       }
 
       setState(() => _isProcessing = false);
-      widget.onRegistered?.call();
+      if (!result.success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              result.error ?? 'No se pudo registrar la entrada.',
+            ),
+            backgroundColor: AppColors.darkError,
+          ),
+        );
+        return;
+      }
 
-      Navigator.pushNamed(
-        context,
-        AppConstants.scanResultRoute,
-        arguments: ScanResultArguments(
-          boxId: partNumber,
-          status: MovementType.entry,
-          scannedAt: scannedAt,
-          partNumber: partNumber,
-          quantity: quantity,
-          rawCode: rawCode,
-          detail: result.entry?.detail,
-          notes: result.message,
-        ),
-      );
+      widget.onRegistered?.call();
       _manualController.clear();
       _quantityController.clear();
+      FocusScope.of(context).unfocus();
+      await _showSuccessOverlay(
+        queuedForSync: result.queuedForSync,
+        message: result.message,
+      );
+      if (!mounted) {
+        return;
+      }
       _qrFocusNode.requestFocus();
     } catch (e) {
       if (!mounted) {
@@ -203,6 +211,156 @@ class _EntryScanFormState extends State<EntryScanForm> {
     });
   }
 
+  Future<void> _showSuccessOverlay({
+    required bool queuedForSync,
+    String? message,
+  }) async {
+    final navigator = Navigator.of(context, rootNavigator: true);
+    unawaited(
+      Future<void>.delayed(const Duration(seconds: 2), () {
+        if (navigator.mounted && navigator.canPop()) {
+          navigator.pop();
+        }
+      }),
+    );
+
+    final statusColor = queuedForSync
+        ? AppColors.darkInfo
+        : MovementType.entry.color(context);
+    final statusSoftColor = queuedForSync
+        ? AppColors.darkInfoSoft
+        : MovementType.entry.softColor(context);
+    final title = queuedForSync
+        ? 'ENTRADA GUARDADA'
+        : 'ENTRADA REGISTRADA';
+    final subtitle = message ??
+        (queuedForSync
+            ? 'La entrada quedó pendiente de sincronizar.'
+            : 'El material fue agregado correctamente al inventario compartido.');
+
+    await showGeneralDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      barrierLabel: 'registro_exitoso',
+      barrierColor: Colors.black.withValues(alpha: 0.28),
+      transitionDuration: const Duration(milliseconds: 180),
+      pageBuilder: (dialogContext, _, __) {
+        return SafeArea(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 420),
+                child: Material(
+                  color: Colors.transparent,
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(28),
+                    decoration: BoxDecoration(
+                      color: statusSoftColor,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: statusColor.withValues(alpha: 0.32),
+                        width: 1.5,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.18),
+                          blurRadius: 24,
+                          offset: const Offset(0, 12),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: statusColor.withValues(alpha: 0.16),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            queuedForSync
+                                ? Icons.sync_rounded
+                                : MovementType.entry.icon,
+                            size: 48,
+                            color: statusColor,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          title,
+                          style: Theme.of(dialogContext)
+                              .textTheme
+                              .headlineSmall
+                              ?.copyWith(
+                                color: statusColor,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 1.2,
+                              ),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          subtitle,
+                          style: Theme.of(dialogContext)
+                              .textTheme
+                              .bodyMedium
+                              ?.copyWith(
+                                color: statusColor.withValues(alpha: 0.88),
+                              ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+      transitionBuilder: (_, animation, __, child) {
+        return AnimatedBuilder(
+          animation: animation,
+          child: child,
+          builder: (context, child) {
+            final isReverse = animation.status == AnimationStatus.reverse;
+            final progress = isReverse ? 1 - animation.value : animation.value;
+            final fade = isReverse
+                ? 1 - Curves.easeInQuad.transform(progress)
+                : Curves.easeOutCubic.transform(progress);
+            final scale = isReverse
+                ? 1.0 +
+                    (0.08 * Curves.easeOut.transform(progress)) -
+                    (0.22 * Curves.easeInBack.transform(progress))
+                : 0.96 + (0.04 * Curves.easeOutBack.transform(progress));
+
+            return FadeTransition(
+              opacity: AlwaysStoppedAnimation(fade.clamp(0.0, 1.0)),
+              child: Transform.scale(
+                scale: scale.clamp(0.78, 1.04),
+                child: Stack(
+                  alignment: Alignment.center,
+                  clipBehavior: Clip.none,
+                  children: [
+                    if (isReverse)
+                      _BurstBubbles(
+                        progress: progress,
+                        color: statusColor,
+                      ),
+                    child ?? const SizedBox.shrink(),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -232,14 +390,12 @@ class _EntryScanFormState extends State<EntryScanForm> {
         ],
         AppTextField(
           label: 'QR',
-          hint: 'Ej: P/No EBR... o 3608-EBR...-Oven-...',
+          hint: 'ingrese QR de etiqueta',
           prefixIcon: Icons.inventory_2_outlined,
           controller: _manualController,
           focusNode: _qrFocusNode,
           keyboardType: TextInputType.multiline,
-          textInputAction: TextInputAction.newline,
-          maxLines: 4,
-          minLines: 1,
+          textInputAction: TextInputAction.done,
           autofocus: true,
           onChanged: _handleQrChanged,
         ),
@@ -296,6 +452,93 @@ class _EntryScanFormState extends State<EntryScanForm> {
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 560),
         child: content,
+      ),
+    );
+  }
+}
+
+class _BurstBubbles extends StatelessWidget {
+  final double progress;
+  final Color color;
+
+  const _BurstBubbles({
+    required this.progress,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final burstProgress = Curves.easeOutExpo.transform(progress.clamp(0.0, 1.0));
+    final fade = 1 - Curves.easeIn.transform(progress.clamp(0.0, 1.0));
+    const angles = <double>[
+      -1.85,
+      -1.2,
+      -0.55,
+      -0.12,
+      0.42,
+      0.95,
+      1.52,
+      2.18,
+      2.78,
+    ];
+
+    return IgnorePointer(
+      child: SizedBox(
+        width: 340,
+        height: 240,
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            for (var i = 0; i < angles.length; i++)
+              _BurstBubbleParticle(
+                angle: angles[i],
+                distance: 36 + (92 * burstProgress) + ((i % 3) * 8),
+                size: (i % 2 == 0 ? 18.0 : 12.0) * (1 - (0.72 * progress)),
+                opacity: fade * (i.isEven ? 0.28 : 0.18),
+                color: color,
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _BurstBubbleParticle extends StatelessWidget {
+  final double angle;
+  final double distance;
+  final double size;
+  final double opacity;
+  final Color color;
+
+  const _BurstBubbleParticle({
+    required this.angle,
+    required this.distance,
+    required this.size,
+    required this.opacity,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final dx = math.cos(angle) * distance;
+    final dy = math.sin(angle) * distance;
+
+    return Transform.translate(
+      offset: Offset(dx, dy),
+      child: Container(
+        width: size.clamp(2.0, 18.0),
+        height: size.clamp(2.0, 18.0),
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: color.withValues(alpha: opacity.clamp(0.0, 1.0)),
+          border: Border.all(
+            color: color.withValues(
+              alpha: (opacity * 1.35).clamp(0.0, 1.0),
+            ),
+            width: 1.2,
+          ),
+        ),
       ),
     );
   }

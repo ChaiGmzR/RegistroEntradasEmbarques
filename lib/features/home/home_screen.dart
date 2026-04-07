@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/theme/app_colors.dart';
@@ -146,13 +148,30 @@ class _DashboardTabState extends State<_DashboardTab> {
   bool _isLoading = true;
   List<BoxIdEntry> _recentScans = [];
   int _pendingSync = 0;
+  StreamSubscription<int>? _pendingSyncSubscription;
 
   @override
   void initState() {
     super.initState();
+    _pendingSyncSubscription = OptimisticUpdateService.pendingCountStream.listen((
+      count,
+    ) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _pendingSync = count;
+      });
+    });
     _loadData();
     // Iniciar monitoreo de conectividad
     ConnectivityService.startMonitoring();
+  }
+
+  @override
+  void dispose() {
+    _pendingSyncSubscription?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadData() async {
@@ -366,6 +385,7 @@ class _DashboardTabState extends State<_DashboardTab> {
                               rawCode: entry.rawCode,
                               detail: entry.detail,
                               notes: entry.notes,
+                              compactDetailView: true,
                             ),
                           ),
                         ),

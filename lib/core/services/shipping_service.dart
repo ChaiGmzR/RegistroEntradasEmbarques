@@ -21,13 +21,19 @@ class RegisterMovementResult {
   final int? movementId;
   final String? folio;
   final String? error;
+  final String? message;
+  final int statusCode;
 
   const RegisterMovementResult({
     required this.success,
     this.movementId,
     this.folio,
     this.error,
+    this.message,
+    required this.statusCode,
   });
+
+  bool get isConnectionError => statusCode == 0;
 }
 
 /// Estadísticas operativas del día.
@@ -81,6 +87,8 @@ class DailyStats {
 
 /// Servicio para operaciones de embarques e inventario compartido.
 class ShippingService {
+  static const String defaultEntryLocation = 'SIN-UBICACION';
+
   /// Consulta el estatus de calidad legado de un Box ID.
   static Future<QualityCheckResult> checkQualityStatus(String boxId) async {
     final response = await ApiService.get(
@@ -144,7 +152,7 @@ class ShippingService {
       body: {
         'partNumber': partNumber,
         'quantity': quantity,
-        'location': location,
+        'location': _normalizeEntryLocation(location),
         'referenceCode': rawCode,
         'notes': notes,
         'registeredBy': scannedBy,
@@ -157,6 +165,7 @@ class ShippingService {
       return RegisterMovementResult(
         success: false,
         error: response.error ?? 'Error al registrar entrada',
+        statusCode: response.statusCode,
       );
     }
 
@@ -164,6 +173,8 @@ class ShippingService {
       success: true,
       movementId: response.data?['id'] as int?,
       folio: response.data?['folio']?.toString(),
+      message: response.data?['message']?.toString(),
+      statusCode: response.statusCode,
     );
   }
 
@@ -195,6 +206,7 @@ class ShippingService {
       return RegisterMovementResult(
         success: false,
         error: response.error ?? 'Error al registrar salida',
+        statusCode: response.statusCode,
       );
     }
 
@@ -202,6 +214,8 @@ class ShippingService {
       success: true,
       movementId: response.data?['id'] as int?,
       folio: response.data?['folio']?.toString(),
+      message: response.data?['message']?.toString(),
+      statusCode: response.statusCode,
     );
   }
 
@@ -316,7 +330,8 @@ class ShippingService {
     switch (type) {
       case MovementType.entry:
         final location = _pickString(json, ['location_code', 'zone_code']);
-        if (location.isNotEmpty) {
+        if (location.isNotEmpty &&
+            location.toUpperCase() != defaultEntryLocation) {
           return 'Cant: $quantity • Ubicación: $location';
         }
         return 'Cant: $quantity';
@@ -360,5 +375,13 @@ class ShippingService {
     }
 
     return int.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  static String _normalizeEntryLocation(String? location) {
+    final normalized = location?.trim();
+    if (normalized == null || normalized.isEmpty) {
+      return defaultEntryLocation;
+    }
+    return normalized;
   }
 }

@@ -19,7 +19,6 @@ class HistoryScreen extends StatefulWidget {
 }
 
 class _HistoryScreenState extends State<HistoryScreen> {
-  MovementType? _selectedFilter;
   final _searchController = TextEditingController();
 
   List<BoxIdEntry> _entries = [];
@@ -81,9 +80,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
   List<BoxIdEntry> get _filteredEntries {
     var entries = _entries;
-    if (_selectedFilter != null) {
-      entries = entries.where((e) => e.status == _selectedFilter).toList();
-    }
     if (_searchController.text.isNotEmpty) {
       final query = _searchController.text.toLowerCase();
       entries = entries
@@ -144,37 +140,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   : null,
             ),
           ),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            child: Row(
-              children: [
-                _FilterChip(
-                  label: 'Todos',
-                  isSelected: _selectedFilter == null,
-                  onTap: () => setState(() => _selectedFilter = null),
-                ),
-                const SizedBox(width: 8),
-                _FilterChip(
-                  label: 'Entradas',
-                  color:
-                      isDark ? AppColors.darkSuccess : AppColors.lightSuccess,
-                  isSelected: _selectedFilter == MovementType.entry,
-                  onTap: () =>
-                      setState(() => _selectedFilter = MovementType.entry),
-                ),
-                const SizedBox(width: 8),
-                _FilterChip(
-                  label: 'Retornos',
-                  color: isDark ? AppColors.darkError : AppColors.lightError,
-                  isSelected: _selectedFilter == MovementType.materialReturn,
-                  onTap: () => setState(
-                    () => _selectedFilter = MovementType.materialReturn,
-                  ),
-                ),
-              ],
-            ),
-          ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: Row(
@@ -227,6 +192,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                                   rawCode: entry.rawCode,
                                   detail: entry.detail,
                                   notes: entry.notes,
+                                  compactDetailView: true,
                                 ),
                               ),
                             );
@@ -258,65 +224,11 @@ class _HistoryScreenState extends State<HistoryScreen> {
           ),
           const SizedBox(height: 4),
           Text(
-            'No se encontraron entradas con este filtro.',
+            'No se encontraron entradas con esta búsqueda.',
             style: theme.textTheme.bodyMedium,
             textAlign: TextAlign.center,
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _FilterChip extends StatelessWidget {
-  final String label;
-  final Color? color;
-  final bool isSelected;
-  final VoidCallback onTap;
-
-  const _FilterChip({
-    required this.label,
-    this.color,
-    required this.isSelected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    final effectiveColor = color ?? theme.colorScheme.primary;
-
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        decoration: BoxDecoration(
-          color: isSelected
-              ? effectiveColor.withValues(alpha: isDark ? 0.2 : 0.12)
-              : isDark
-                  ? AppColors.darkSurfaceElevated
-                  : AppColors.lightSurface,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: isSelected
-                ? effectiveColor
-                : (isDark ? AppColors.darkBorder : AppColors.lightBorder),
-          ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: isSelected
-                ? effectiveColor
-                : (isDark
-                    ? AppColors.darkTextSecondary
-                    : AppColors.lightTextSecondary),
-            fontSize: 13,
-            fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
-          ),
-        ),
       ),
     );
   }
