@@ -37,7 +37,8 @@ void main() {
       expect(parsed.quantity, 80);
     });
 
-    test('acepta numero de parte directo cuando el campo ya fue normalizado', () {
+    test('acepta numero de parte directo cuando el campo ya fue normalizado',
+        () {
       const rawValue = 'ACQ30500849';
 
       final parsed = ShippingQrParser.parse(rawValue);
@@ -46,6 +47,26 @@ void main() {
       expect(parsed!.partNumber, 'ACQ30500849');
       expect(parsed.quantity, isNull);
       expect(parsed.rawValue, rawValue);
+    });
+
+    test('acepta ABQ directo para captura por cantidad', () {
+      const rawValue = 'ABQ74229133';
+
+      final parsed = ShippingQrParser.parse(rawValue);
+
+      expect(parsed, isNotNull);
+      expect(parsed!.partNumber, 'ABQ74229133');
+      expect(parsed.quantity, isNull);
+    });
+
+    test('normaliza EBR directo con prefijo E duplicado del scanner', () {
+      const rawValue = 'EEBR41039119';
+
+      final parsed = ShippingQrParser.parse(rawValue);
+
+      expect(parsed, isNotNull);
+      expect(parsed!.partNumber, 'EBR41039119');
+      expect(parsed.quantity, isNull);
     });
 
     test('extrae numero de parte desde etiqueta con prefijo 6902 y TR', () {
@@ -68,7 +89,8 @@ void main() {
       expect(parsed.quantity, isNull);
     });
 
-    test('extrae numero de parte desde lectura normalizada del scanner Zebra', () {
+    test('extrae numero de parte desde lectura normalizada del scanner Zebra',
+        () {
       const rawValue = 'AJJ30036902--TR0424_0241';
 
       final parsed = ShippingQrParser.parse(rawValue);

@@ -4,7 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../core/services/auth_service.dart';
-import '../../core/services/optimistic_update_service.dart';
+import '../../core/services/shipping_service.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/shipping_qr_parser.dart';
 import '../../models/box_id_entry.dart';
@@ -75,62 +75,168 @@ class EntryScanForm extends StatefulWidget {
   State<EntryScanForm> createState() => _EntryScanFormState();
 }
 
+enum _EntryCaptureMode {
+  boxId,
+  quantity,
+}
+
 class _EntryScanFormState extends State<EntryScanForm> {
+  static const _qrScanSettleDelay = Duration(milliseconds: 850);
+
   final _manualController = TextEditingController();
+  final _boxIdController = TextEditingController();
   final _quantityController = TextEditingController();
   final _qrFocusNode = FocusNode();
+  final _boxIdFocusNode = FocusNode();
   final _quantityFocusNode = FocusNode();
+  final List<OqcBoxInfo> _scannedBoxes = [];
+  String? _expectedPartNumber;
+  String? _currentLabelPartNumber;
+  _EntryCaptureMode _captureMode = _EntryCaptureMode.boxId;
   bool _isProcessing = false;
+  bool _isValidatingBox = false;
   Timer? _normalizeTimer;
 
   @override
   void dispose() {
     _normalizeTimer?.cancel();
     _manualController.dispose();
+    _boxIdController.dispose();
     _quantityController.dispose();
     _qrFocusNode.dispose();
+    _boxIdFocusNode.dispose();
     _quantityFocusNode.dispose();
     super.dispose();
   }
 
-  void _submitScan(String boxId) {
-    _processScan(boxId);
+  void _submitBoxId(String boxId) {
+    _validateAndAddBox(boxId);
   }
 
-  Future<void> _processScan(String rawScan) async {
-    final parsedQr = ShippingQrParser.parse(rawScan);
+  Future<void> _validateAndAddBox(String rawBoxCode) async {
+    final parsedQr = ShippingQrParser.parse(_manualController.text);
     if (parsedQr == null) {
-      _showInvalidQrMessage();
+      _showMessage('Escanea primero el QR de etiqueta.');
+      _qrFocusNode.requestFocus();
       return;
     }
 
-    final quantityValue = int.tryParse(_quantityController.text.trim());
-    if (quantityValue == null || quantityValue <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Captura una cantidad valida antes de registrar.'),
-        ),
+    final labelPartNumber = parsedQr.partNumber;
+    if (!_requiresBoxId(labelPartNumber)) {
+      _showMessage('Este número de parte se registra por cantidad.');
+      _quantityFocusNode.requestFocus();
+      return;
+    }
+
+    final requiredPartNumber = _expectedPartNumber ?? labelPartNumber;
+    if (labelPartNumber != requiredPartNumber) {
+      _showMessage(
+        'El QR pertenece a $labelPartNumber; el lote requiere $requiredPartNumber.',
       );
+      _qrFocusNode.requestFocus();
+      return;
+    }
+
+    final boxCode = _normalizeBoxCode(rawBoxCode);
+    if (boxCode.isEmpty) {
+      _showMessage('Captura un Box ID valido.');
+      return;
+    }
+
+    if (_scannedBoxes.any((box) => box.boxCode == boxCode)) {
+      _showMessage('Este Box ID ya está en la lista.');
+      return;
+    }
+
+    setState(() => _isValidatingBox = true);
+
+    try {
+      final result = await ShippingService.getOqcBoxStatus(boxCode);
+
+      if (!mounted) {
+        return;
+      }
+
+      if (!result.success || result.box == null) {
+        setState(() => _isValidatingBox = false);
+        _showMessage(result.error ?? 'No se pudo validar el Box ID.');
+        return;
+      }
+
+      final box = result.box!;
+      if (box.entered) {
+        setState(() => _isValidatingBox = false);
+        _showMessage(
+          'El Box ID ya tiene entrada registrada${box.entryFolio == null ? '' : ' (${box.entryFolio})'}.',
+          isError: true,
+        );
+        return;
+      }
+
+      if (box.partNumber.isEmpty || box.quantity <= 0) {
+        setState(() => _isValidatingBox = false);
+        _showMessage('El Box ID no tiene número de parte o cantidad válida.');
+        return;
+      }
+
+      if (box.partNumber != labelPartNumber) {
+        setState(() => _isValidatingBox = false);
+        _showMessage(
+          'La caja pertenece a ${box.partNumber}; el QR escaneado es $labelPartNumber.',
+          isError: true,
+        );
+        return;
+      }
+
+      setState(() {
+        _scannedBoxes.add(box);
+        _isValidatingBox = false;
+        _expectedPartNumber = requiredPartNumber;
+        _currentLabelPartNumber = null;
+        _captureMode = _EntryCaptureMode.boxId;
+      });
+
+      _manualController.clear();
+      _boxIdController.clear();
+      _qrFocusNode.requestFocus();
+    } catch (e) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _isValidatingBox = false);
+      _showMessage('Error al validar Box ID: $e');
+    }
+  }
+
+  Future<void> _registerEntry() async {
+    if (_captureMode == _EntryCaptureMode.quantity && _scannedBoxes.isEmpty) {
+      await _registerQuantityEntry();
+      return;
+    }
+    await _registerEntryBatch();
+  }
+
+  Future<void> _registerEntryBatch() async {
+    if (_scannedBoxes.isEmpty) {
+      _showMessage('Escanea al menos un Box ID antes de registrar.');
       return;
     }
 
     setState(() => _isProcessing = true);
 
     try {
-      final partNumber = parsedQr.partNumber;
-      final quantity = quantityValue;
-      final rawCode = parsedQr.rawValue;
       final user = AuthService.currentUser;
       final operatorName = user?.fullName ?? user?.username ?? 'Usuario local';
 
-      final result = await OptimisticUpdateService.registerEntryOptimistic(
-        boxId: partNumber,
+      final result = await ShippingService.registerEntryBoxes(
+        boxCodes: _scannedBoxes.map((box) => box.boxCode).toList(),
         scannedBy: operatorName,
-        partNumber: partNumber,
-        quantity: quantity,
-        rawCode: rawCode,
-        lotNumber: parsedQr.quantity != null ? 'QR-QTY:${parsedQr.quantity}' : null,
-        notes: 'QR: $rawCode | Qty registrada: $quantity',
+        expectedPartNumber: _expectedPartNumber ?? _firstScannedPartNumber,
+        rawQr: _manualController.text.trim().isEmpty
+            ? null
+            : _manualController.text.trim(),
+        notes:
+            'Cajas OQC: ${_scannedBoxes.map((box) => '${box.boxCode}:${box.quantity}').join(', ')}',
         deviceId: 'PDA-TC15',
       );
 
@@ -153,10 +259,15 @@ class _EntryScanFormState extends State<EntryScanForm> {
 
       widget.onRegistered?.call();
       _manualController.clear();
-      _quantityController.clear();
+      _boxIdController.clear();
+      setState(() {
+        _scannedBoxes.clear();
+        _expectedPartNumber = null;
+        _currentLabelPartNumber = null;
+        _captureMode = _EntryCaptureMode.boxId;
+      });
       FocusScope.of(context).unfocus();
       await _showSuccessOverlay(
-        queuedForSync: result.queuedForSync,
         message: result.message,
       );
       if (!mounted) {
@@ -178,41 +289,230 @@ class _EntryScanFormState extends State<EntryScanForm> {
     }
   }
 
-  void _showInvalidQrMessage() {
+  Future<void> _registerQuantityEntry() async {
+    final parsedQr = ShippingQrParser.parse(_manualController.text);
+    final partNumber = parsedQr?.partNumber ?? _currentLabelPartNumber;
+    final quantity = int.tryParse(_quantityController.text.trim());
+
+    if (partNumber == null || partNumber.isEmpty) {
+      _showMessage('Escanea primero el QR de etiqueta.');
+      _qrFocusNode.requestFocus();
+      return;
+    }
+
+    if (_requiresBoxId(partNumber)) {
+      _showMessage('Este número de parte requiere registro con Box ID.');
+      _boxIdFocusNode.requestFocus();
+      return;
+    }
+
+    if (quantity == null || quantity <= 0) {
+      _showMessage('Captura una cantidad válida antes de registrar.');
+      _quantityFocusNode.requestFocus();
+      return;
+    }
+
+    setState(() => _isProcessing = true);
+
+    try {
+      final user = AuthService.currentUser;
+      final operatorName = user?.fullName ?? user?.username ?? 'Usuario local';
+      final result = await ShippingService.registerEntry(
+        partNumber: partNumber,
+        quantity: quantity,
+        scannedBy: operatorName,
+        rawCode: parsedQr?.rawValue ?? _manualController.text.trim(),
+        notes: 'Entrada por cantidad desde PDA',
+        deviceId: 'PDA-TC15',
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() => _isProcessing = false);
+      if (!result.success) {
+        _showMessage(result.error ?? 'No se pudo registrar la entrada.');
+        return;
+      }
+
+      widget.onRegistered?.call();
+      _manualController.clear();
+      _quantityController.clear();
+      setState(() {
+        _expectedPartNumber = null;
+        _currentLabelPartNumber = null;
+        _captureMode = _EntryCaptureMode.boxId;
+      });
+      FocusScope.of(context).unfocus();
+      await _showSuccessOverlay(message: result.message);
+      if (!mounted) {
+        return;
+      }
+      _qrFocusNode.requestFocus();
+    } catch (e) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _isProcessing = false);
+      _showMessage('Error al procesar: $e');
+    }
+  }
+
+  void _showMessage(String message, {bool isError = true}) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: const Text(
-          'QR no reconocido. Usa un formato valido que incluya el numero de parte.',
-        ),
-        backgroundColor: AppColors.darkError,
+        content: Text(message),
+        backgroundColor: isError ? AppColors.darkError : AppColors.darkSuccess,
       ),
     );
   }
 
   void _handleQrChanged(String value) {
     _normalizeTimer?.cancel();
-    _normalizeTimer = Timer(const Duration(milliseconds: 180), () {
-      final parsed = ShippingQrParser.parse(value);
-      if (parsed == null) {
-        return;
-      }
 
-      final normalizedPart = parsed.partNumber;
-      if (_manualController.text != normalizedPart) {
-        _manualController.value = TextEditingValue(
-          text: normalizedPart,
-          selection: TextSelection.collapsed(offset: normalizedPart.length),
-        );
-      }
+    if (_isDirectPartScan(value)) {
+      _applyQrValue(value);
+      return;
+    }
 
-      if (!_quantityFocusNode.hasFocus) {
-        _quantityFocusNode.requestFocus();
-      }
+    _normalizeTimer = Timer(_qrScanSettleDelay, () {
+      _applyQrValue(_manualController.text);
     });
   }
 
+  void _submitQr(String value) {
+    _normalizeTimer?.cancel();
+    if (_isIncompleteQrPrefix(value)) {
+      _normalizeTimer = Timer(_qrScanSettleDelay, () {
+        _applyQrValue(_manualController.text);
+      });
+      return;
+    }
+    _applyQrValue(value);
+  }
+
+  void _applyQrValue(String value) {
+    if (!mounted) {
+      return;
+    }
+
+    if (value.trim().isEmpty) {
+      setState(() {
+        _currentLabelPartNumber = null;
+        if (_scannedBoxes.isEmpty) {
+          _expectedPartNumber = null;
+          _captureMode = _EntryCaptureMode.boxId;
+        }
+      });
+      return;
+    }
+
+    if (_isIncompleteQrPrefix(value)) {
+      return;
+    }
+
+    final parsed = ShippingQrParser.parse(value);
+    if (parsed == null) {
+      return;
+    }
+
+    final normalizedPart = parsed.partNumber;
+    final requiresBoxId = _requiresBoxId(normalizedPart);
+    final requiredPartNumber = _scannedBoxes.isEmpty
+        ? null
+        : (_expectedPartNumber ?? _firstScannedPartNumber);
+
+    if (requiredPartNumber != null && requiredPartNumber != normalizedPart) {
+      _showMessage(
+        'El QR pertenece a $normalizedPart; las cajas escaneadas son $requiredPartNumber.',
+      );
+      return;
+    }
+
+    if (_manualController.text != normalizedPart) {
+      _manualController.value = TextEditingValue(
+        text: normalizedPart,
+        selection: TextSelection.collapsed(offset: normalizedPart.length),
+      );
+    }
+
+    setState(() {
+      _currentLabelPartNumber = normalizedPart;
+      _captureMode =
+          requiresBoxId ? _EntryCaptureMode.boxId : _EntryCaptureMode.quantity;
+      if (requiresBoxId) {
+        _expectedPartNumber = normalizedPart;
+        _quantityController.clear();
+      } else {
+        _expectedPartNumber = null;
+        _scannedBoxes.clear();
+        _boxIdController.clear();
+      }
+    });
+
+    if (requiresBoxId) {
+      _boxIdFocusNode.requestFocus();
+    } else {
+      _quantityFocusNode.requestFocus();
+    }
+  }
+
+  bool _isIncompleteQrPrefix(String value) {
+    final normalized = value.replaceAll(RegExp(r'\s+'), '').toUpperCase();
+    return RegExp(r'^P[/-]?NO$').hasMatch(normalized) ||
+        RegExp(r'^P[/-]?NO[A-Z0-9]{0,4}$').hasMatch(normalized);
+  }
+
+  bool _isDirectPartScan(String value) {
+    final normalized = value.replaceAll(RegExp(r'\s+'), '').toUpperCase();
+    if (RegExp(r'^P[/-]?NO').hasMatch(normalized)) {
+      return false;
+    }
+    return RegExp(r'^(?:E?EBR\d{8}|[A-Z]{3}\d{8})$').hasMatch(normalized);
+  }
+
+  void _resetScanFlow() {
+    _normalizeTimer?.cancel();
+    _manualController.clear();
+    _boxIdController.clear();
+    _quantityController.clear();
+    setState(() {
+      _scannedBoxes.clear();
+      _expectedPartNumber = null;
+      _currentLabelPartNumber = null;
+      _captureMode = _EntryCaptureMode.boxId;
+      _isValidatingBox = false;
+    });
+    _qrFocusNode.requestFocus();
+  }
+
+  String _normalizeBoxCode(String value) {
+    return value.replaceAll(RegExp(r'\s+'), '').trim().toUpperCase();
+  }
+
+  int get _totalQuantity =>
+      _scannedBoxes.fold(0, (total, box) => total + box.quantity);
+
+  String? get _firstScannedPartNumber =>
+      _scannedBoxes.isEmpty ? null : _scannedBoxes.first.partNumber;
+
+  bool get _canRegister {
+    if (_isProcessing || _isValidatingBox) {
+      return false;
+    }
+    if (_captureMode == _EntryCaptureMode.quantity && _scannedBoxes.isEmpty) {
+      final quantity = int.tryParse(_quantityController.text.trim()) ?? 0;
+      return (_currentLabelPartNumber?.isNotEmpty ?? false) && quantity > 0;
+    }
+    return _scannedBoxes.isNotEmpty;
+  }
+
+  bool _requiresBoxId(String partNumber) {
+    return partNumber.trim().toUpperCase().startsWith('EBR');
+  }
+
   Future<void> _showSuccessOverlay({
-    required bool queuedForSync,
     String? message,
   }) async {
     final navigator = Navigator.of(context, rootNavigator: true);
@@ -224,19 +524,11 @@ class _EntryScanFormState extends State<EntryScanForm> {
       }),
     );
 
-    final statusColor = queuedForSync
-        ? AppColors.darkInfo
-        : MovementType.entry.color(context);
-    final statusSoftColor = queuedForSync
-        ? AppColors.darkInfoSoft
-        : MovementType.entry.softColor(context);
-    final title = queuedForSync
-        ? 'ENTRADA GUARDADA'
-        : 'ENTRADA REGISTRADA';
+    final statusColor = MovementType.entry.color(context);
+    final statusSoftColor = MovementType.entry.softColor(context);
+    const title = 'ENTRADA REGISTRADA';
     final subtitle = message ??
-        (queuedForSync
-            ? 'La entrada quedó pendiente de sincronizar.'
-            : 'El material fue agregado correctamente al inventario compartido.');
+        'Las cajas fueron agregadas correctamente al inventario compartido.';
 
     await showGeneralDialog<void>(
       context: context,
@@ -281,9 +573,7 @@ class _EntryScanFormState extends State<EntryScanForm> {
                             shape: BoxShape.circle,
                           ),
                           child: Icon(
-                            queuedForSync
-                                ? Icons.sync_rounded
-                                : MovementType.entry.icon,
+                            MovementType.entry.icon,
                             size: 48,
                             color: statusColor,
                           ),
@@ -365,6 +655,19 @@ class _EntryScanFormState extends State<EntryScanForm> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
+    final clearButton = Align(
+      alignment: Alignment.centerRight,
+      child: TextButton(
+        onPressed: _isProcessing ? null : _resetScanFlow,
+        style: TextButton.styleFrom(
+          visualDensity: VisualDensity.compact,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          minimumSize: const Size(0, 34),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
+        child: const Text('Limpiar'),
+      ),
+    );
     final content = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -387,6 +690,8 @@ class _EntryScanFormState extends State<EntryScanForm> {
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 24),
+          clearButton,
+          const SizedBox(height: 8),
         ],
         AppTextField(
           label: 'QR',
@@ -395,30 +700,87 @@ class _EntryScanFormState extends State<EntryScanForm> {
           controller: _manualController,
           focusNode: _qrFocusNode,
           keyboardType: TextInputType.multiline,
-          textInputAction: TextInputAction.done,
+          textInputAction: TextInputAction.newline,
           autofocus: true,
+          minLines: 1,
+          maxLines: 3,
           onChanged: _handleQrChanged,
+          onFieldSubmitted: _submitQr,
+          dense: true,
         ),
-        const SizedBox(height: 12),
-        AppTextField(
-          label: 'Cantidad',
-          hint: 'Ej: 20',
-          prefixIcon: Icons.numbers_rounded,
-          controller: _quantityController,
-          focusNode: _quantityFocusNode,
-          keyboardType: TextInputType.number,
-        ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 8),
+        if (_captureMode == _EntryCaptureMode.quantity &&
+            _scannedBoxes.isEmpty) ...[
+          AppTextField(
+            label: 'Cantidad',
+            hint: 'Cantidad',
+            prefixIcon: Icons.numbers_rounded,
+            controller: _quantityController,
+            focusNode: _quantityFocusNode,
+            keyboardType: TextInputType.number,
+            textInputAction: TextInputAction.done,
+            onChanged: (_) => setState(() {}),
+            onFieldSubmitted: (_) => _registerEntry(),
+            dense: true,
+          ),
+          const SizedBox(height: 10),
+        ] else ...[
+          AppTextField(
+            label: 'Box ID',
+            hint: 'Box ID',
+            prefixIcon: Icons.view_week_rounded,
+            controller: _boxIdController,
+            focusNode: _boxIdFocusNode,
+            textInputAction: TextInputAction.done,
+            onFieldSubmitted: _submitBoxId,
+            dense: true,
+            suffixIcon: _isValidatingBox
+                ? const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  )
+                : IconButton(
+                    icon: const Icon(Icons.add_rounded),
+                    onPressed: () => _submitBoxId(_boxIdController.text),
+                  ),
+          ),
+          const SizedBox(height: 8),
+          _BoxAccumulatorTable(
+            boxes: _scannedBoxes,
+            onRemove: (boxCode) {
+              setState(() {
+                _scannedBoxes.removeWhere((box) => box.boxCode == boxCode);
+                _expectedPartNumber = _firstScannedPartNumber;
+                if (_scannedBoxes.isEmpty) {
+                  _currentLabelPartNumber = null;
+                }
+              });
+            },
+          ),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerRight,
+            child: Text(
+              'Cantidad total: $_totalQuantity ea',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: AppColors.darkPrimary,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+        ],
         AppPrimaryButton(
           label: 'Registrar entrada',
           icon: MovementType.entry.icon,
-          onPressed: () {
-            if (_manualController.text.isNotEmpty) {
-              _submitScan(_manualController.text);
-            }
-          },
+          isLoading: _isProcessing,
+          onPressed: _canRegister ? _registerEntry : null,
         ),
-        if (_isProcessing) ...[
+        if (_isValidatingBox && !_isProcessing) ...[
           const SizedBox(height: 16),
           LinearProgressIndicator(
             borderRadius: BorderRadius.circular(4),
@@ -429,7 +791,7 @@ class _EntryScanFormState extends State<EntryScanForm> {
           ),
           const SizedBox(height: 10),
           Text(
-            'Registrando entrada...',
+            'Validando Box ID...',
             style: theme.textTheme.bodyMedium?.copyWith(
               color: isDark ? AppColors.darkInfo : AppColors.lightInfo,
             ),
@@ -440,11 +802,24 @@ class _EntryScanFormState extends State<EntryScanForm> {
     );
 
     if (widget.embedded) {
-      return Card(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: content,
-        ),
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('Registrar entrada', style: theme.textTheme.titleSmall),
+              clearButton,
+            ],
+          ),
+          const SizedBox(height: 6),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: content,
+            ),
+          ),
+        ],
       );
     }
 
@@ -452,6 +827,204 @@ class _EntryScanFormState extends State<EntryScanForm> {
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 560),
         child: content,
+      ),
+    );
+  }
+}
+
+class _BoxAccumulatorTable extends StatelessWidget {
+  final List<OqcBoxInfo> boxes;
+  final ValueChanged<String> onRemove;
+
+  const _BoxAccumulatorTable({
+    required this.boxes,
+    required this.onRemove,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final borderColor = isDark ? AppColors.darkBorder : AppColors.lightBorder;
+    final headerColor = isDark
+        ? AppColors.darkSurfaceElevated
+        : AppColors.lightSurfaceSecondary;
+    final rowColor = isDark ? AppColors.darkSurface : AppColors.lightSurface;
+    final altRowColor = isDark
+        ? AppColors.darkSurfaceElevated.withValues(alpha: 0.45)
+        : AppColors.lightSurfaceSecondary.withValues(alpha: 0.72);
+    final textColor =
+        isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
+
+    return Container(
+      height: 142,
+      decoration: BoxDecoration(
+        color: rowColor,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: borderColor),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          Container(
+            color: headerColor,
+            child: Row(
+              children: [
+                _TableHeaderCell('BOX ID', flex: 6, borderColor: borderColor),
+                _TableHeaderCell('NO. PARTE',
+                    flex: 4, borderColor: borderColor),
+                _TableHeaderCell(
+                  'CANTIDAD',
+                  flex: 3,
+                  borderColor: borderColor,
+                  isLast: true,
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: boxes.isEmpty
+                ? Center(
+                    child: Text(
+                      'Escanea Box ID liberados por OQC',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: textColor,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  )
+                : Scrollbar(
+                    thumbVisibility: boxes.length > 4,
+                    child: ListView.builder(
+                      itemCount: boxes.length,
+                      itemBuilder: (context, index) {
+                        final box = boxes[index];
+                        return InkWell(
+                          onLongPress: () => onRemove(box.boxCode),
+                          child: Container(
+                            color: index.isEven ? rowColor : altRowColor,
+                            child: Row(
+                              children: [
+                                _TableBodyCell(
+                                  box.boxCode,
+                                  flex: 6,
+                                  borderColor: borderColor,
+                                  monospace: true,
+                                ),
+                                _TableBodyCell(
+                                  box.partNumber,
+                                  flex: 4,
+                                  borderColor: borderColor,
+                                  monospace: true,
+                                  bold: true,
+                                ),
+                                _TableBodyCell(
+                                  box.quantity.toString(),
+                                  flex: 3,
+                                  borderColor: borderColor,
+                                  isLast: true,
+                                  alignRight: true,
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TableHeaderCell extends StatelessWidget {
+  final String label;
+  final int flex;
+  final Color borderColor;
+  final bool isLast;
+
+  const _TableHeaderCell(
+    this.label, {
+    required this.flex,
+    required this.borderColor,
+    this.isLast = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      flex: flex,
+      child: Container(
+        height: 28,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          border: Border(
+            right: isLast ? BorderSide.none : BorderSide(color: borderColor),
+            bottom: BorderSide(color: borderColor),
+          ),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 4),
+        child: Text(
+          label,
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                fontSize: 10,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.2,
+              ),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          textAlign: TextAlign.center,
+        ),
+      ),
+    );
+  }
+}
+
+class _TableBodyCell extends StatelessWidget {
+  final String value;
+  final int flex;
+  final Color borderColor;
+  final bool isLast;
+  final bool alignRight;
+  final bool monospace;
+  final bool bold;
+
+  const _TableBodyCell(
+    this.value, {
+    required this.flex,
+    required this.borderColor,
+    this.isLast = false,
+    this.alignRight = false,
+    this.monospace = false,
+    this.bold = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      flex: flex,
+      child: Container(
+        height: 26,
+        alignment: alignRight ? Alignment.centerRight : Alignment.centerLeft,
+        decoration: BoxDecoration(
+          border: Border(
+            right: isLast ? BorderSide.none : BorderSide(color: borderColor),
+            bottom: BorderSide(color: borderColor),
+          ),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 5),
+        child: Text(
+          value,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                fontSize: 11,
+                fontFamily: monospace ? 'monospace' : null,
+                fontWeight: bold ? FontWeight.w700 : FontWeight.w500,
+              ),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
       ),
     );
   }
@@ -468,7 +1041,8 @@ class _BurstBubbles extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final burstProgress = Curves.easeOutExpo.transform(progress.clamp(0.0, 1.0));
+    final burstProgress =
+        Curves.easeOutExpo.transform(progress.clamp(0.0, 1.0));
     final fade = 1 - Curves.easeIn.transform(progress.clamp(0.0, 1.0));
     const angles = <double>[
       -1.85,

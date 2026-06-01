@@ -275,12 +275,14 @@ class AppTextField extends StatelessWidget {
   final TextInputType? keyboardType;
   final String? Function(String?)? validator;
   final ValueChanged<String>? onChanged;
+  final ValueChanged<String>? onFieldSubmitted;
   final bool readOnly;
   final bool autofocus;
   final int? maxLines;
   final int? minLines;
   final TextInputAction? textInputAction;
   final FocusNode? focusNode;
+  final bool dense;
 
   const AppTextField({
     super.key,
@@ -293,12 +295,14 @@ class AppTextField extends StatelessWidget {
     this.keyboardType,
     this.validator,
     this.onChanged,
+    this.onFieldSubmitted,
     this.readOnly = false,
     this.autofocus = false,
     this.maxLines = 1,
     this.minLines,
     this.textInputAction,
     this.focusNode,
+    this.dense = false,
   });
 
   @override
@@ -310,16 +314,30 @@ class AppTextField extends StatelessWidget {
       keyboardType: keyboardType,
       validator: validator,
       onChanged: onChanged,
+      onFieldSubmitted: onFieldSubmitted,
       readOnly: readOnly,
       autofocus: autofocus,
       maxLines: maxLines,
       minLines: minLines,
       textInputAction: textInputAction,
+      style: dense
+          ? Theme.of(context).textTheme.bodyMedium?.copyWith(fontSize: 15)
+          : null,
       decoration: InputDecoration(
         labelText: label,
         hintText: hint,
         prefixIcon: prefixIcon != null ? Icon(prefixIcon) : null,
         suffixIcon: suffixIcon,
+        isDense: dense,
+        contentPadding: dense
+            ? const EdgeInsets.symmetric(horizontal: 12, vertical: 12)
+            : null,
+        prefixIconConstraints: dense && prefixIcon != null
+            ? const BoxConstraints(minWidth: 44, minHeight: 42)
+            : null,
+        suffixIconConstraints: dense && suffixIcon != null
+            ? const BoxConstraints(minWidth: 42, minHeight: 42)
+            : null,
       ),
     );
   }

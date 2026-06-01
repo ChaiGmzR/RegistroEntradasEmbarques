@@ -36,6 +36,60 @@ class RegisterMovementResult {
   bool get isConnectionError => statusCode == 0;
 }
 
+/// Caja OQC liberada y validada para embarques.
+class OqcBoxInfo {
+  final String boxCode;
+  final String partNumber;
+  final int quantity;
+  final String? oqcFolio;
+  final String? oqcStatus;
+  final bool entered;
+  final bool exited;
+  final String? entryFolio;
+  final String? exitFolio;
+
+  const OqcBoxInfo({
+    required this.boxCode,
+    required this.partNumber,
+    required this.quantity,
+    this.oqcFolio,
+    this.oqcStatus,
+    this.entered = false,
+    this.exited = false,
+    this.entryFolio,
+    this.exitFolio,
+  });
+
+  factory OqcBoxInfo.fromJson(Map<String, dynamic> json) {
+    return OqcBoxInfo(
+      boxCode: json['boxCode']?.toString() ?? '',
+      partNumber: json['partNumber']?.toString() ?? '',
+      quantity: ShippingService._parseInt(json['quantity']),
+      oqcFolio: json['oqcFolio']?.toString(),
+      oqcStatus: json['oqcStatus']?.toString(),
+      entered: json['entered'] == true,
+      exited: json['exited'] == true,
+      entryFolio: json['entryFolio']?.toString(),
+      exitFolio: json['exitFolio']?.toString(),
+    );
+  }
+}
+
+/// Resultado de validación de caja OQC.
+class OqcBoxLookupResult {
+  final bool success;
+  final OqcBoxInfo? box;
+  final String? error;
+  final int statusCode;
+
+  const OqcBoxLookupResult({
+    required this.success,
+    this.box,
+    this.error,
+    required this.statusCode,
+  });
+}
+
 /// Estadísticas operativas del día.
 class DailyStats {
   final int total;
@@ -121,8 +175,9 @@ class ShippingService {
         boxId: data['box_id']?.toString() ?? boxId,
         status: MovementType.entry,
         scannedAt: DateTime.now(),
-        partNumber:
-            data['part_number']?.toString() ?? data['box_id']?.toString() ?? boxId,
+        partNumber: data['part_number']?.toString() ??
+            data['box_id']?.toString() ??
+            boxId,
         quantity: _parseInt(data['quantity']),
         rawCode: data['raw_code']?.toString(),
         productName: data['product_name']?.toString(),
@@ -165,6 +220,87 @@ class ShippingService {
       return RegisterMovementResult(
         success: false,
         error: response.error ?? 'Error al registrar entrada',
+        statusCode: response.statusCode,
+      );
+    }
+
+    return RegisterMovementResult(
+      success: true,
+      movementId: response.data?['id'] as int?,
+      folio: response.data?['folio']?.toString(),
+      message: response.data?['message']?.toString(),
+      statusCode: response.statusCode,
+    );
+  }
+
+  static Future<OqcBoxLookupResult> getOqcBoxStatus(String boxCode) async {
+    final normalizedBoxCode = boxCode.trim().toUpperCase();
+    if (normalizedBoxCode.isEmpty) {
+      return const OqcBoxLookupResult(
+        success: false,
+        error: 'Captura un Box ID valido',
+        statusCode: 400,
+      );
+    }
+
+    final encodedBoxCode = Uri.encodeComponent(normalizedBoxCode);
+    final response = await ApiService.get(
+      '${ApiConfig.materialBoxesEndpoint}/$encodedBoxCode',
+    );
+
+    if (!response.success) {
+      return OqcBoxLookupResult(
+        success: false,
+        error: response.error ?? 'No se pudo validar el Box ID',
+        statusCode: response.statusCode,
+      );
+    }
+
+    final boxPayload = response.data?['box'];
+    if (boxPayload is! Map<String, dynamic>) {
+      return OqcBoxLookupResult(
+        success: false,
+        error: 'Respuesta invalida al validar el Box ID',
+        statusCode: response.statusCode,
+      );
+    }
+
+    return OqcBoxLookupResult(
+      success: true,
+      box: OqcBoxInfo.fromJson(boxPayload),
+      statusCode: response.statusCode,
+    );
+  }
+
+  static Future<RegisterMovementResult> registerEntryBoxes({
+    required List<String> boxCodes,
+    required String scannedBy,
+    String? expectedPartNumber,
+    String? rawQr,
+    String? notes,
+    String? deviceId,
+  }) async {
+    final normalizedBoxes = boxCodes
+        .map((boxCode) => boxCode.trim().toUpperCase())
+        .where((boxCode) => boxCode.isNotEmpty)
+        .toList();
+
+    final response = await ApiService.post(
+      ApiConfig.materialEntryBoxesEndpoint,
+      body: {
+        'boxes': normalizedBoxes,
+        'expectedPartNumber': expectedPartNumber?.trim().toUpperCase(),
+        'registeredBy': scannedBy,
+        'notes': notes ?? (rawQr == null ? null : 'QR: $rawQr'),
+        'deviceId': deviceId,
+        'receivedAt': DateTime.now().toIso8601String(),
+      },
+    );
+
+    if (!response.success) {
+      return RegisterMovementResult(
+        success: false,
+        error: response.error ?? 'Error al registrar entrada por cajas OQC',
         statusCode: response.statusCode,
       );
     }

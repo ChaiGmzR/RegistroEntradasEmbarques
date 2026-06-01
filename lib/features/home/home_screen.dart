@@ -1,18 +1,11 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import '../../core/constants/app_constants.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/services/auth_service.dart';
-import '../../core/services/shipping_service.dart';
-import '../../core/services/cache_service.dart';
 import '../../core/services/connectivity_service.dart';
 import '../../core/services/optimistic_update_service.dart';
-import '../../models/box_id_entry.dart';
-import '../../models/mock_data.dart';
-import '../../shared/widgets/common_widgets.dart';
 import '../../shared/widgets/connection_indicator.dart';
-import '../../shared/widgets/shimmer_loading.dart';
 import '../scan/scan_screen.dart';
 import '../history/history_screen.dart';
 import '../settings/settings_screen.dart';
@@ -145,15 +138,14 @@ class _DashboardTab extends StatefulWidget {
 }
 
 class _DashboardTabState extends State<_DashboardTab> {
-  bool _isLoading = true;
-  List<BoxIdEntry> _recentScans = [];
   int _pendingSync = 0;
   StreamSubscription<int>? _pendingSyncSubscription;
 
   @override
   void initState() {
     super.initState();
-    _pendingSyncSubscription = OptimisticUpdateService.pendingCountStream.listen((
+    _pendingSyncSubscription =
+        OptimisticUpdateService.pendingCountStream.listen((
       count,
     ) {
       if (!mounted) {
@@ -175,88 +167,14 @@ class _DashboardTabState extends State<_DashboardTab> {
   }
 
   Future<void> _loadData() async {
-    // 1. Cargar desde caché primero (instantáneo)
-    final cachedHistory = _filterVisibleHistory(CacheService.getHistory());
-
-    if (cachedHistory.isNotEmpty) {
-      setState(() {
-        _recentScans = cachedHistory;
-        _isLoading = false;
-      });
-    }
-
-    // 2. Actualizar pendientes de sync
     setState(() {
       _pendingSync = OptimisticUpdateService.pendingOperations.length;
     });
-
-    // 3. Refrescar desde servidor en background
-    await _refreshFromServer();
-  }
-
-  Future<void> _refreshFromServer() async {
-    // Si estamos usando mock, usar datos mock
-    if (AuthService.useMockData) {
-      await Future.delayed(const Duration(milliseconds: 500));
-      setState(() {
-        _recentScans = _filterVisibleHistory(MockData.recentScans);
-        _isLoading = false;
-      });
-      CacheService.setHistory(_recentScans);
-      return;
-    }
-
-    // Llamar API real
-    try {
-      final historyResult = await ShippingService.getHistory(limit: 10);
-
-      if (mounted) {
-        setState(() {
-          _recentScans = _filterVisibleHistory(historyResult);
-          _isLoading = false;
-        });
-
-        CacheService.setHistory(_recentScans);
-      }
-    } catch (e) {
-      // Si falla, mantener datos de caché/mock
-      if (mounted && _isLoading) {
-        setState(() {
-          _recentScans = _filterVisibleHistory(MockData.recentScans);
-          _isLoading = false;
-        });
-      }
-    }
-  }
-
-  List<BoxIdEntry> _filterVisibleHistory(List<BoxIdEntry>? entries) {
-    if (entries == null) {
-      return const [];
-    }
-
-    return entries
-        .where(
-          (entry) =>
-              entry.status == MovementType.entry ||
-              entry.status == MovementType.materialReturn,
-        )
-        .toList();
   }
 
   Future<void> _onRefresh() async {
-    // Sincronizar pendientes
     await OptimisticUpdateService.syncAllPending();
-    // Refrescar datos
-    await _refreshFromServer();
-    // Actualizar contador de pendientes
     setState(() {
-      _pendingSync = OptimisticUpdateService.pendingOperations.length;
-    });
-  }
-
-  void _refreshLocalHistoryFromCache() {
-    setState(() {
-      _recentScans = _filterVisibleHistory(CacheService.getHistory());
       _pendingSync = OptimisticUpdateService.pendingOperations.length;
     });
   }
@@ -293,9 +211,7 @@ class _DashboardTabState extends State<_DashboardTab> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
     final canWriteEntries = AuthService.canWriteEntries;
-    final canViewHistory = AuthService.canViewHistory;
 
     return Scaffold(
       appBar: AppBar(
@@ -329,52 +245,11 @@ class _DashboardTabState extends State<_DashboardTab> {
             const SizedBox(height: 24),
 
             if (canWriteEntries) ...[
-              const SectionHeader(title: 'Registrar entrada'),
-              const SizedBox(height: 10),
               EntryScanForm(
                 embedded: true,
-                onRegistered: _refreshLocalHistoryFromCache,
+                onRegistered: () => unawaited(_onRefresh()),
               ),
               const SizedBox(height: 24),
-            ],
-
-            if (canViewHistory) ...[
-              SectionHeader(
-                title: 'Últimos movimientos',
-                actionLabel: 'Ver todo',
-                onAction: () =>
-                    Navigator.pushNamed(context, AppConstants.historyRoute),
-              ),
-              const SizedBox(height: 10),
-              if (_isLoading)
-                const ScanListShimmer(itemCount: 3)
-              else if (_recentScans.isEmpty)
-                _EmptyStateCard(isDark: isDark)
-              else
-                ..._recentScans.take(4).map(
-                      (entry) => Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: ScanEntryCard(
-                          entry: entry,
-                          onTap: () => Navigator.pushNamed(
-                            context,
-                            AppConstants.scanResultRoute,
-                            arguments: ScanResultArguments(
-                              boxId: entry.boxId,
-                              status: entry.status,
-                              scannedAt: entry.scannedAt,
-                              partNumber: entry.partNumber,
-                              quantity: entry.quantity,
-                              rawCode: entry.rawCode,
-                              detail: entry.detail,
-                              notes: entry.notes,
-                              compactDetailView: true,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-              const SizedBox(height: 16),
             ],
           ],
         ),
@@ -575,43 +450,6 @@ class _SyncPendingBanner extends StatelessWidget {
               ),
             ),
         ],
-      ),
-    );
-  }
-}
-
-/// Estado vacío cuando no hay escaneos.
-class _EmptyStateCard extends StatelessWidget {
-  final bool isDark;
-
-  const _EmptyStateCard({required this.isDark});
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          children: [
-            Icon(
-              Icons.inbox_outlined,
-              size: 48,
-              color: isDark
-                  ? AppColors.darkTextSecondary
-                  : AppColors.lightTextSecondary,
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'Sin movimientos hoy',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Los registros aparecerán aquí',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ],
-        ),
       ),
     );
   }
