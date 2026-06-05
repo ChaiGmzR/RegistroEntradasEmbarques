@@ -36,4 +36,24 @@ void main() {
     expect(find.text('Cantidad'), findsWidgets);
     expect(find.text('Box ID'), findsNothing);
   });
+
+  testWidgets('entrada EBR directa queda lista para capturar Box ID', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(body: EntryScanForm(embedded: true)),
+      ),
+    );
+
+    await tester.enterText(find.byType(TextFormField).first, 'EEBR41039119');
+    await tester.pump();
+
+    final qrField = tester.widget<TextFormField>(
+      find.byType(TextFormField).first,
+    );
+    expect(qrField.controller?.text, 'EBR41039119');
+    expect(find.text('Box ID'), findsWidgets);
+    expect(find.text('Cantidad'), findsNothing);
+  });
 }
