@@ -392,7 +392,12 @@ abstract class AuthService {
   static bool get canViewSettings => isAuthenticated;
 
   static bool get hasMobileOperationalAccess =>
-      canViewDashboard || canWriteEntries || canViewHistory;
+      canViewDashboard ||
+      canWriteEntries ||
+      canViewHistory ||
+      canViewAudit ||
+      canManageAudit ||
+      canScanAudit;
 
   /// Restaura la sesión local si sigue vigente.
   static Future<bool> restoreSession() async {

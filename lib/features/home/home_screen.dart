@@ -6,6 +6,7 @@ import '../../core/services/auth_service.dart';
 import '../../core/services/connectivity_service.dart';
 import '../../core/services/optimistic_update_service.dart';
 import '../../shared/widgets/connection_indicator.dart';
+import '../audit/audit_screen.dart';
 import '../scan/scan_screen.dart';
 import '../history/history_screen.dart';
 import '../settings/settings_screen.dart';
@@ -74,6 +75,22 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: Icon(Icons.history_outlined),
             selectedIcon: Icon(Icons.history_rounded),
             label: 'Historial',
+          ),
+        ),
+      );
+    }
+
+    if (AuthService.canViewAudit ||
+        AuthService.canManageAudit ||
+        AuthService.canScanAudit) {
+      tabs.add(
+        const _HomeTabDefinition(
+          id: 'audit',
+          screen: AuditScreen(),
+          destination: NavigationDestination(
+            icon: Icon(Icons.fact_check_outlined),
+            selectedIcon: Icon(Icons.fact_check_rounded),
+            label: 'Auditoría',
           ),
         ),
       );

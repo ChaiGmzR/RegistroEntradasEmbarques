@@ -76,6 +76,9 @@ abstract class ApiConfig {
       '$materialEntriesEndpoint/boxes';
   static const String materialExitsEndpoint = '$materialBaseEndpoint/exits';
   static const String materialBoxesEndpoint = '$materialBaseEndpoint/boxes';
+  static const String materialAuditsEndpoint = '$materialBaseEndpoint/audits';
+  static const String materialActiveAuditEndpoint =
+      '$materialAuditsEndpoint/active';
   static const String materialReturnsEndpoint = '$materialBaseEndpoint/returns';
   static const String materialInventoryEndpoint =
       '$materialBaseEndpoint/inventory';

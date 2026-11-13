@@ -2,7 +2,7 @@
 abstract class AppConstants {
   static const String appName = 'Registro Embarques';
   static const String appVersion =
-      '1.2.8'; // Debe coincidir con UpdateConfig.currentVersion
+      '1.2.9'; // Debe coincidir con UpdateConfig.currentVersion
   static const String appDescription =
       'Registro de entradas de productos al almacen de embarques';
 

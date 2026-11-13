@@ -90,6 +90,117 @@ class OqcBoxLookupResult {
   });
 }
 
+/// Caja registrada durante una auditoría física de almacén.
+class ShippingAuditBox {
+  final int id;
+  final String boxCode;
+  final String partNumber;
+  final int quantity;
+  final String? oqcFolio;
+  final String? oqcStatus;
+  final String? entryFolio;
+  final String? exitFolio;
+  final String scannedBy;
+  final DateTime? scannedAt;
+
+  const ShippingAuditBox({
+    required this.id,
+    required this.boxCode,
+    required this.partNumber,
+    required this.quantity,
+    this.oqcFolio,
+    this.oqcStatus,
+    this.entryFolio,
+    this.exitFolio,
+    required this.scannedBy,
+    this.scannedAt,
+  });
+
+  factory ShippingAuditBox.fromJson(Map<String, dynamic> json) {
+    return ShippingAuditBox(
+      id: ShippingService._parseInt(json['id']),
+      boxCode: json['boxCode']?.toString() ?? '',
+      partNumber: json['partNumber']?.toString() ?? '',
+      quantity: ShippingService._parseInt(json['quantity']),
+      oqcFolio: json['oqcFolio']?.toString(),
+      oqcStatus: json['oqcStatus']?.toString(),
+      entryFolio: json['entryFolio']?.toString(),
+      exitFolio: json['exitFolio']?.toString(),
+      scannedBy: json['scannedBy']?.toString() ?? '',
+      scannedAt: DateTime.tryParse(json['scannedAt']?.toString() ?? ''),
+    );
+  }
+}
+
+/// Sesión de auditoría física y su fotografía de cajas escaneadas.
+class ShippingAudit {
+  final int id;
+  final String auditFolio;
+  final String status;
+  final String startedBy;
+  final DateTime? startedAt;
+  final String? closedBy;
+  final DateTime? closedAt;
+  final int totalBoxes;
+  final int totalParts;
+  final int totalQuantity;
+  final List<ShippingAuditBox> boxes;
+
+  const ShippingAudit({
+    required this.id,
+    required this.auditFolio,
+    required this.status,
+    required this.startedBy,
+    this.startedAt,
+    this.closedBy,
+    this.closedAt,
+    required this.totalBoxes,
+    required this.totalParts,
+    required this.totalQuantity,
+    required this.boxes,
+  });
+
+  bool get isOpen => status == 'open';
+
+  factory ShippingAudit.fromJson(Map<String, dynamic> json) {
+    final boxesPayload = json['boxes'];
+    return ShippingAudit(
+      id: ShippingService._parseInt(json['id']),
+      auditFolio: json['auditFolio']?.toString() ?? '',
+      status: json['status']?.toString() ?? '',
+      startedBy: json['startedBy']?.toString() ?? '',
+      startedAt: DateTime.tryParse(json['startedAt']?.toString() ?? ''),
+      closedBy: json['closedBy']?.toString(),
+      closedAt: DateTime.tryParse(json['closedAt']?.toString() ?? ''),
+      totalBoxes: ShippingService._parseInt(json['totalBoxes']),
+      totalParts: ShippingService._parseInt(json['totalParts']),
+      totalQuantity: ShippingService._parseInt(json['totalQuantity']),
+      boxes: boxesPayload is List
+          ? boxesPayload
+              .whereType<Map<String, dynamic>>()
+              .map(ShippingAuditBox.fromJson)
+              .toList()
+          : const [],
+    );
+  }
+}
+
+class ShippingAuditResult {
+  final bool success;
+  final ShippingAudit? audit;
+  final String? message;
+  final String? error;
+  final int statusCode;
+
+  const ShippingAuditResult({
+    required this.success,
+    this.audit,
+    this.message,
+    this.error,
+    required this.statusCode,
+  });
+}
+
 /// Estadísticas operativas del día.
 class DailyStats {
   final int total;
@@ -268,6 +379,98 @@ class ShippingService {
     return OqcBoxLookupResult(
       success: true,
       box: OqcBoxInfo.fromJson(boxPayload),
+      statusCode: response.statusCode,
+    );
+  }
+
+  static Future<ShippingAuditResult> getActiveAudit() async {
+    final response =
+        await ApiService.get(ApiConfig.materialActiveAuditEndpoint);
+    if (!response.success) {
+      return ShippingAuditResult(
+        success: false,
+        error: response.error ?? 'No se pudo consultar la auditoría activa',
+        statusCode: response.statusCode,
+      );
+    }
+
+    final auditPayload = response.data?['audit'];
+    return ShippingAuditResult(
+      success: true,
+      audit: auditPayload is Map<String, dynamic>
+          ? ShippingAudit.fromJson(auditPayload)
+          : null,
+      message: response.data?['message']?.toString(),
+      statusCode: response.statusCode,
+    );
+  }
+
+  static Future<ShippingAuditResult> startAudit({
+    required String startedBy,
+    required String deviceId,
+  }) async {
+    final response = await ApiService.post(
+      ApiConfig.materialAuditsEndpoint,
+      body: {
+        'startedBy': startedBy,
+        'deviceId': deviceId,
+        'startedAt': DateTime.now().toIso8601String(),
+      },
+    );
+    return _mapAuditResponse(
+      response,
+      fallbackError: 'No se pudo iniciar la auditoría',
+    );
+  }
+
+  static Future<ShippingAuditResult> scanAuditBox({
+    required int auditId,
+    required String boxCode,
+    required String scannedBy,
+  }) async {
+    final response = await ApiService.post(
+      '${ApiConfig.materialAuditsEndpoint}/$auditId/boxes',
+      body: {
+        'boxCode': boxCode.trim().toUpperCase(),
+        'scannedBy': scannedBy,
+        'scannedAt': DateTime.now().toIso8601String(),
+      },
+    );
+    return _mapAuditResponse(
+      response,
+      fallbackError: 'No se pudo registrar el Box ID en la auditoría',
+    );
+  }
+
+  static Future<ShippingAuditResult> closeAudit({
+    required int auditId,
+    required String closedBy,
+  }) async {
+    final response = await ApiService.post(
+      '${ApiConfig.materialAuditsEndpoint}/$auditId/close',
+      body: {
+        'closedBy': closedBy,
+        'closedAt': DateTime.now().toIso8601String(),
+      },
+    );
+    return _mapAuditResponse(
+      response,
+      fallbackError: 'No se pudo cerrar la auditoría',
+    );
+  }
+
+  static ShippingAuditResult _mapAuditResponse(
+    ApiResponse<Map<String, dynamic>> response, {
+    required String fallbackError,
+  }) {
+    final auditPayload = response.data?['audit'];
+    return ShippingAuditResult(
+      success: response.success,
+      audit: auditPayload is Map<String, dynamic>
+          ? ShippingAudit.fromJson(auditPayload)
+          : null,
+      message: response.data?['message']?.toString(),
+      error: response.success ? null : response.error ?? fallbackError,
       statusCode: response.statusCode,
     );
   }

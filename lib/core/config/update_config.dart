@@ -7,7 +7,7 @@ class UpdateConfig {
   static const String repoName = 'RegistroEntradasEmbarques';
 
   /// Version actual de la aplicacion (debe coincidir con pubspec.yaml)
-  static const String currentVersion = '1.2.8';
+  static const String currentVersion = '1.2.9';
 
   /// URL de la API de GitHub para obtener el ultimo release
   static String get latestReleaseUrl =>
